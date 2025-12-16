@@ -382,3 +382,111 @@ design_probes <- function(target_ids, trna_df, similarity_data = NULL,
 
   probes
 }
+
+#' Design probes using hierarchical target selection
+#'
+#' Uses a target selection (desired/avoid groups) to find optimal probe regions
+#' that hit all desired targets while avoiding off-targets.
+#'
+#' @param selection Target selection from create_target_selection
+#' @param trna_df Full data frame from load_organism_data
+#' @param min_length Minimum probe length (default 20)
+#' @param max_length Maximum probe length (default 25)
+#' @param min_conservation Minimum conservation in desired group (default 90%)
+#' @param min_divergence Minimum divergence from avoid group (default 30%)
+#' @param top_n Return top N probes (default 20)
+#' @return List with: probes (data frame), selection_analysis, region_analysis
+#' @export
+design_probes_selective <- function(selection,
+                                    trna_df,
+                                    min_length = 20,
+                                    max_length = 25,
+                                    min_conservation = 90,
+                                    min_divergence = 30,
+                                    top_n = 20) {
+
+  # Analyze conservation within desired group
+  conservation <- analyze_group_conservation(selection$desired)
+
+  # Find selective regions
+  regions <- find_selective_regions(
+    selection,
+    min_length = min_length,
+    max_length = max_length,
+    min_conservation = min_conservation,
+    min_divergence = min_divergence
+  )
+
+  if (nrow(regions) == 0) {
+    warning("No regions found meeting conservation/divergence criteria. ",
+            "Try relaxing min_conservation or min_divergence.")
+    return(list(
+      probes = data.frame(),
+      conservation_analysis = conservation,
+      region_analysis = regions
+    ))
+  }
+
+  # Use first desired target as reference
+  ref_id <- selection$desired$id[1]
+  ref_seq <- selection$desired$sequence[1]
+
+  # Generate probes from top regions
+  best_regions <- head(regions[regions$quality %in% c("EXCELLENT", "GOOD", "FAIR"), ], 10)
+
+  if (nrow(best_regions) == 0) {
+    best_regions <- head(regions, 5)  # Fall back to top 5 regardless of quality
+  }
+
+  all_probes <- list()
+
+  for (i in 1:nrow(best_regions)) {
+    reg <- best_regions[i, ]
+    target_region <- substr(ref_seq, reg$start, reg$end)
+    probe_seq <- reverse_complement(target_region)
+
+    all_probes[[i]] <- data.frame(
+      start = reg$start,
+      end = reg$end,
+      length = reg$length,
+      target_region = target_region,
+      probe_sequence = probe_seq,
+      gc_content = calculate_gc_content(probe_seq),
+      tm_basic = calculate_tm_basic(probe_seq),
+      tm_nn = calculate_tm_nn(probe_seq),
+      desired_conservation = reg$mean_conservation,
+      avoid_divergence = reg$mean_divergence,
+      selectivity_score = reg$selectivity_score,
+      quality = reg$quality,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  probes <- bind_rows(all_probes)
+
+  # Score probes
+  probes$score <- sapply(1:nrow(probes), function(i) {
+    base_score <- score_probe(probes[i, ])
+    # Bonus for selectivity
+    selectivity_bonus <- probes$selectivity_score[i] / 2
+    base_score + selectivity_bonus
+  })
+
+  # Sort and rank
+  probes <- probes[order(-probes$score), ]
+  probes$rank <- 1:nrow(probes)
+
+  if (nrow(probes) > top_n) {
+    probes <- probes[1:top_n, ]
+  }
+
+  # Add reference info
+  probes$reference_id <- ref_id
+
+  list(
+    probes = probes,
+    conservation_analysis = conservation,
+    region_analysis = regions,
+    selection = selection
+  )
+}

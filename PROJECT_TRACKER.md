@@ -2,11 +2,11 @@
 
 **Last Updated:** 2024-12-16
 
-## Project Status: Initial Setup
+## Project Status: Core Algorithms Complete
 
-## Current Phase: Foundation
+## Current Phase: Phase 1 MVP (Algorithms Done, UI Pending)
 
-Building the core infrastructure and basic probe design functionality.
+Core probe design algorithms implemented. Pre-computed similarity approach for specificity-aware design.
 
 ---
 
@@ -14,8 +14,8 @@ Building the core infrastructure and basic probe design functionality.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Project scaffolding | In Progress | Setting up directories, configs |
-| Core probe design algorithm | Not Started | Basic Tm calculation, specificity |
+| Generate similarity data | Pending | Run `scripts/generate_similarity_data.R` |
+| Integration testing | Pending | Run `tests/test_integration.R` |
 | Shiny app skeleton | Not Started | Basic UI layout |
 
 ---
@@ -26,24 +26,29 @@ Building the core infrastructure and basic probe design functionality.
 |------|------|-------|
 | Create CLAUDE.md | 2024-12-16 | Project instructions |
 | Create PROJECT_TRACKER.md | 2024-12-16 | This file |
+| R/sequence_utils.R | 2024-12-16 | FASTA parsing, header parsing, filtering |
+| R/similarity.R | 2024-12-16 | Pre-computed pairwise alignment, divergent region detection |
+| R/probe_design.R | 2024-12-16 | Probe generation, Tm (NN method), GC calculation |
+| R/validation.R | 2024-12-16 | Specificity checking, off-target analysis |
+| Unit tests | 2024-12-16 | tests/testthat/ for all modules |
 
 ---
 
 ## Backlog
 
 ### Phase 1: MVP
-- [ ] Load and parse FASTA sequences
-- [ ] Basic probe design (user-specified region)
-- [ ] Tm calculation (nearest-neighbor method)
-- [ ] Simple specificity check within organism
-- [ ] Display probe sequences with properties
+- [x] Load and parse FASTA sequences
+- [x] Basic probe design (user-specified region)
+- [x] Tm calculation (nearest-neighbor method)
+- [x] Specificity check with pre-computed similarity
+- [ ] Display probe sequences with properties (Shiny UI)
 - [ ] Export probe list (CSV)
 
 ### Phase 2: Enhanced Specificity
+- [x] Isoacceptor discrimination analysis
+- [x] Visual alignment of probes to targets (text-based)
+- [x] Highlight unique/divergent regions
 - [ ] Cross-organism specificity checking
-- [ ] Isoacceptor discrimination analysis
-- [ ] Visual alignment of probes to targets
-- [ ] Highlight unique regions
 
 ### Phase 3: Advanced Features
 - [ ] Secondary structure consideration
@@ -81,9 +86,14 @@ Building the core infrastructure and basic probe design functionality.
 |------|---------|
 | `CLAUDE.md` | AI coding instructions |
 | `PROJECT_TRACKER.md` | This file - task tracking |
+| `R/sequence_utils.R` | FASTA parsing, header parsing, filtering |
+| `R/similarity.R` | Pre-computed similarity, divergent region detection |
+| `R/probe_design.R` | Probe generation, Tm/GC calculations |
+| `R/validation.R` | Specificity checking, off-target analysis |
+| `scripts/generate_similarity_data.R` | Generate cached similarity matrices |
+| `tests/test_integration.R` | Quick integration test |
 | `app/ui.R` | Shiny user interface (to create) |
 | `app/server.R` | Shiny server logic (to create) |
-| `R/probe_design.R` | Core algorithms (to create) |
 
 ---
 
@@ -96,6 +106,16 @@ Building the core infrastructure and basic probe design functionality.
 ---
 
 ## Session Notes
+
+### 2024-12-16 - Core Algorithms Implementation
+- Implemented all 4 R modules:
+  - `sequence_utils.R`: FASTA parsing, header parsing for all 3 organisms
+  - `similarity.R`: Pre-computed pairwise alignment for specificity-aware design
+  - `probe_design.R`: Probe generation with nearest-neighbor Tm calculation
+  - `validation.R`: Specificity checking, off-target categorization, alignment reports
+- Created unit tests for all modules
+- Created integration test script
+- Key design: Pre-compute similarity matrices to instantly find divergent regions
 
 ### 2024-12-16 - Initial Setup
 - Created project structure and documentation

@@ -111,14 +111,14 @@ check_probe_specificity <- function(probe_seq, target_id, trna_df,
 
     if (is.na(binding$mismatches)) return(NULL)
 
-    # Categorize relationship to target
+    # Categorize relationship to target (handle NA values)
     if (id == target_id) {
       category <- "target"
-    } else if (row$family_id == target_family) {
+    } else if (!is.na(row$family_id) && !is.na(target_family) && row$family_id == target_family) {
       category <- "same_family"
-    } else if (row$isoacceptor_id == target_isoacceptor) {
+    } else if (!is.na(row$isoacceptor_id) && !is.na(target_isoacceptor) && row$isoacceptor_id == target_isoacceptor) {
       category <- "same_isoacceptor"
-    } else if (row$amino_acid == target_aa) {
+    } else if (!is.na(row$amino_acid) && !is.na(target_aa) && row$amino_acid == target_aa) {
       category <- "same_amino_acid"
     } else {
       category <- "other"

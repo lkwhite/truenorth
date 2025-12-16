@@ -1,0 +1,32 @@
+# R environment
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+renv/library/
+renv/local/
+renv/staging/
+renv/python/
+renv/.cache/
+
+# Shiny
+rsconnect/
+
+# IDE
+.vscode/
+*.Rproj
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (keep structure, ignore large files)
+*.fa.ssi
+
+# Logs
+*.log
+
+# Temporary
+tmp/
+temp/
+*.tmp

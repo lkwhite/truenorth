@@ -136,19 +136,5 @@ wizardStep1Server <- function(id, values) {
       )
     })
 
-    # JavaScript to update card styling
-    tags$script(HTML(sprintf("
-      Shiny.addCustomMessageHandler('updateGoalCards', function(data) {
-        // Remove selected class from all cards
-        document.querySelectorAll('.goal-card').forEach(function(card) {
-          card.classList.remove('selected');
-        });
-        // Add selected class to chosen card
-        var selectedCard = document.getElementById(data.ns + 'card_' + data.selected);
-        if (selectedCard) {
-          selectedCard.classList.add('selected');
-        }
-      });
-    ")))
   })
 }

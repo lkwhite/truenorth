@@ -118,6 +118,20 @@ ui <- page_fluid(
       .feasibility-moderate { color: #E69F00; }
       .feasibility-challenging { color: #D55E00; }
       .feasibility-not-feasible { color: #CC79A7; }
+    ")),
+    # JavaScript for goal card selection
+    tags$script(HTML("
+      $(document).ready(function() {
+        Shiny.addCustomMessageHandler('updateGoalCards', function(data) {
+          // Remove selected class from all goal cards
+          $('.goal-card').removeClass('selected');
+          // Add selected class to chosen card
+          var selectedCard = document.getElementById(data.ns + 'card_' + data.selected);
+          if (selectedCard) {
+            selectedCard.classList.add('selected');
+          }
+        });
+      });
     "))
   ),
 

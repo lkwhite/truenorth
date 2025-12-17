@@ -339,14 +339,18 @@ wizardStep4Server <- function(id, values) {
           class = "d-flex justify-content-between align-items-center mb-2",
           tags$h5(class = "mb-0", "Target Binding"),
           tags$div(
-            class = "form-check form-switch",
-            tags$input(
-              type = "checkbox",
-              class = "form-check-input",
-              id = ns("show_all_targets"),
-              onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("show_all_targets"))
-            ),
-            tags$label(class = "form-check-label small", `for` = ns("show_all_targets"), "Show all")
+            class = "d-flex align-items-center gap-2",
+            tags$span(class = "small text-muted", "Top 5"),
+            tags$div(
+              class = "form-check form-switch mb-0",
+              tags$input(
+                type = "checkbox",
+                class = "form-check-input",
+                id = ns("show_all_targets"),
+                onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("show_all_targets"))
+              ),
+              tags$label(class = "form-check-label small", `for` = ns("show_all_targets"), "Show all")
+            )
           )
         ),
         uiOutput(ns("target_binding_diagram")),
@@ -356,14 +360,18 @@ wizardStep4Server <- function(id, values) {
           class = "d-flex justify-content-between align-items-center mb-2 mt-4",
           tags$h5(class = "mb-0", "Potential Off-Targets"),
           tags$div(
-            class = "form-check form-switch",
-            tags$input(
-              type = "checkbox",
-              class = "form-check-input",
-              id = ns("show_all_offtargets"),
-              onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("show_all_offtargets"))
-            ),
-            tags$label(class = "form-check-label small", `for` = ns("show_all_offtargets"), "Show all")
+            class = "d-flex align-items-center gap-2",
+            tags$span(class = "small text-muted", "Top 3"),
+            tags$div(
+              class = "form-check form-switch mb-0",
+              tags$input(
+                type = "checkbox",
+                class = "form-check-input",
+                id = ns("show_all_offtargets"),
+                onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("show_all_offtargets"))
+              ),
+              tags$label(class = "form-check-label small", `for` = ns("show_all_offtargets"), "Show all")
+            )
           )
         ),
         uiOutput(ns("offtarget_diagram"))

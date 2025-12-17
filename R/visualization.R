@@ -32,6 +32,430 @@ COLORS <- list(
 )
 
 # =============================================================================
+# Sequence Grouping and Comparison
+# =============================================================================
+
+#' Group tRNAs by sequence identity
+#'
+#' Groups tRNAs with identical sequences together and identifies differences
+#' between non-identical sequences within the same isoacceptor.
+#'
+#' @param trna_df Data frame with tRNA data (must have 'sequence' and 'id' columns)
+#' @return Data frame with added columns: sequence_group, group_size, is_representative,
+#'         diff_from_ref, diff_positions
+#' @export
+group_by_sequence <- function(trna_df) {
+  if (nrow(trna_df) == 0) return(trna_df)
+
+  # Assign sequence groups (identical sequences get same group)
+  unique_seqs <- unique(trna_df$sequence)
+  seq_to_group <- setNames(seq_along(unique_seqs), unique_seqs)
+
+  trna_df$sequence_group <- seq_to_group[trna_df$sequence]
+
+  # Count group sizes
+  group_counts <- table(trna_df$sequence_group)
+  trna_df$group_size <- as.integer(group_counts[as.character(trna_df$sequence_group)])
+
+  # Mark first in each group as representative
+  trna_df$is_representative <- !duplicated(trna_df$sequence_group)
+
+  # Use first sequence as reference for comparisons
+  ref_seq <- trna_df$sequence[1]
+
+  # Calculate differences from reference
+  trna_df$diff_from_ref <- mapply(count_differences, trna_df$sequence,
+                                   MoreArgs = list(ref = ref_seq))
+  trna_df$diff_positions <- mapply(find_difference_positions, trna_df$sequence,
+                                    MoreArgs = list(ref = ref_seq), SIMPLIFY = FALSE)
+
+  trna_df
+}
+
+#' Count nucleotide differences between two sequences
+#'
+#' @param seq1 First sequence
+#' @param seq2 Second sequence (reference)
+#' @return Integer count of differences
+count_differences <- function(seq1, ref) {
+  if (nchar(seq1) != nchar(ref)) {
+    return(abs(nchar(seq1) - nchar(ref)) +
+           sum(strsplit(seq1, "")[[1]][1:min(nchar(seq1), nchar(ref))] !=
+               strsplit(ref, "")[[1]][1:min(nchar(seq1), nchar(ref))]))
+  }
+  sum(strsplit(seq1, "")[[1]] != strsplit(ref, "")[[1]])
+}
+
+#' Find positions where two sequences differ
+#'
+#' @param seq1 First sequence
+#' @param ref Reference sequence
+#' @return Character vector describing differences (e.g., "pos 45: G→A")
+find_difference_positions <- function(seq1, ref) {
+  if (seq1 == ref) return(character(0))
+
+  chars1 <- strsplit(seq1, "")[[1]]
+  chars_ref <- strsplit(ref, "")[[1]]
+
+  # Handle length differences
+  min_len <- min(length(chars1), length(chars_ref))
+
+  diffs <- character(0)
+
+  # Check each position
+  for (i in seq_len(min_len)) {
+    if (chars1[i] != chars_ref[i]) {
+      diffs <- c(diffs, paste0(i, ":", chars_ref[i], "\u2192", chars1[i]))
+    }
+  }
+
+  # Note length differences
+  if (length(chars1) > length(chars_ref)) {
+    diffs <- c(diffs, paste0("+", length(chars1) - length(chars_ref), "nt at 3'"))
+  } else if (length(chars1) < length(chars_ref)) {
+    diffs <- c(diffs, paste0("-", length(chars_ref) - length(chars1), "nt at 3'"))
+  }
+
+  diffs
+}
+
+#' Format difference summary for display
+#'
+#' Shows % identity for many differences, or specific positions for few (1-5)
+#'
+#' @param n_diff Number of differences
+#' @param diff_positions Character vector from find_difference_positions
+#' @param seq_length Length of the sequence
+#' @return Formatted string
+format_differences <- function(n_diff, diff_positions = NULL, seq_length = 75) {
+  if (n_diff == 0) return("")
+
+  # Calculate % identity
+  pct_identity <- round(100 * (seq_length - n_diff) / seq_length, 0)
+
+  if (n_diff <= 5 && !is.null(diff_positions) && length(diff_positions) > 0) {
+    # Show specific positions for small number of diffs
+    paste0(pct_identity, "% identity (", paste(diff_positions, collapse = ", "), ")")
+  } else {
+    # Just show % identity for many diffs
+    paste0(pct_identity, "% identity (", n_diff, " nt differ)")
+  }
+}
+
+# =============================================================================
+# Multiple Sequence Alignment View
+# =============================================================================
+
+#' Find variable positions across a set of sequences
+#'
+#' @param sequences Character vector of sequences
+#' @return Integer vector of 1-indexed positions where sequences differ
+find_variable_positions <- function(sequences) {
+  if (length(sequences) <= 1) return(integer(0))
+
+
+  # Get max length
+
+max_len <- max(nchar(sequences))
+
+  # Pad sequences to same length
+  padded <- sapply(sequences, function(s) {
+    if (nchar(s) < max_len) {
+      paste0(s, paste(rep("-", max_len - nchar(s)), collapse = ""))
+    } else {
+      s
+    }
+  })
+
+  # Split into character matrices
+  char_mat <- do.call(rbind, strsplit(padded, ""))
+
+  # Find positions where not all characters are the same
+  variable <- sapply(seq_len(ncol(char_mat)), function(i) {
+    length(unique(char_mat[, i])) > 1
+  })
+
+  which(variable)
+}
+
+#' Compute consensus sequence
+#'
+#' @param sequences Character vector of sequences
+#' @return Character string with most common base at each position
+compute_consensus <- function(sequences) {
+  max_len <- max(nchar(sequences))
+
+  # Pad sequences
+ padded <- sapply(sequences, function(s) {
+    if (nchar(s) < max_len) {
+      paste0(s, paste(rep("-", max_len - nchar(s)), collapse = ""))
+    } else {
+      s
+    }
+  })
+
+  # Get consensus (most common) at each position
+  char_mat <- do.call(rbind, strsplit(padded, ""))
+
+  sapply(seq_len(ncol(char_mat)), function(i) {
+    tab <- table(char_mat[, i])
+    names(tab)[which.max(tab)]
+  }) |> paste(collapse = "")
+}
+
+#' Collapse identical sequences into groups
+#'
+#' @param group_df Data frame with tRNA data
+#' @return List with unique_seqs (data frame) and group_info (list of member IDs per unique seq)
+collapse_identical_sequences <- function(group_df) {
+  # Group by sequence
+  seq_groups <- split(group_df, group_df$sequence)
+
+  # For each unique sequence, keep first row as representative
+  unique_df <- do.call(rbind, lapply(seq_groups, function(g) g[1, ]))
+
+  # Store member IDs for each group
+  group_info <- lapply(seq_groups, function(g) g$id)
+  names(group_info) <- unique_df$sequence
+
+  list(
+    unique_df = unique_df,
+    group_info = group_info
+  )
+}
+
+#' Get color for nucleotide variant (Sanger-style with Okabe-Ito palette)
+#'
+#' @param base Character, the nucleotide
+#' @return CSS color string
+get_base_color <- function(base) {
+  switch(toupper(base),
+    "A" = "#009E73",  # Green (Okabe-Ito bluish green)
+    "T" = "#D55E00",  # Red (Okabe-Ito vermillion)
+    "U" = "#D55E00",  # Red (same as T)
+    "G" = "#F0E442",  # Yellow (Okabe-Ito)
+    "C" = "#0072B2",  # Blue (Okabe-Ito blue)
+    "#999999"         # Gray for gaps/unknown
+  )
+}
+
+#' Render MSA view with consensus and collapsed identical sequences
+#'
+#' @param group_df Data frame with tRNA data for one isoacceptor
+#' @param selected_ids Character vector of selected tRNA IDs
+#' @param selection_types Named list mapping IDs to "desired" or "avoid"
+#' @return HTML element with MSA visualization
+render_msa_view <- function(group_df, selected_ids, selection_types) {
+  if (nrow(group_df) == 0) return(NULL)
+
+  # Collapse identical sequences
+  collapsed <- collapse_identical_sequences(group_df)
+  unique_df <- collapsed$unique_df
+  group_info <- collapsed$group_info
+
+  sequences <- unique_df$sequence
+  n_unique <- length(sequences)
+
+  # Compute consensus
+  consensus <- compute_consensus(sequences)
+  consensus_chars <- strsplit(consensus, "")[[1]]
+  max_len <- nchar(consensus)
+
+  # Get anticodon positions
+  ac_start <- unique_df$anticodon_start[1]
+  ac_end <- unique_df$anticodon_end[1]
+
+  # Build the MSA display
+  tags$div(
+    class = "msa-container",
+    style = "overflow-x: auto; font-family: monospace; font-size: 0.85em;",
+
+    # Consensus row
+    tags$div(
+      class = "msa-row consensus-row",
+      style = "display: flex; align-items: center; padding: 4px; margin-bottom: 4px; background-color: #f0f0f0; border-bottom: 2px solid #ccc;",
+
+      # Spacer for checkbox alignment (matches checkbox + margin)
+      tags$span(style = "width: 21px; flex-shrink: 0;"),
+
+      tags$span(
+        style = "width: 190px; flex-shrink: 0; font-weight: bold; color: #333; font-size: 0.9em;",
+        "Consensus"
+      ),
+
+      {
+        seq_html <- sapply(seq_len(max_len), function(pos) {
+          char <- consensus_chars[pos]
+          is_anticodon <- !is.na(ac_start) && pos >= ac_start && pos <= ac_end
+
+          style <- if (is_anticodon) {
+            paste0("background-color: ", COLORS$anticodon, "; font-weight: bold;")
+          } else {
+            "color: #333; font-weight: bold;"
+          }
+
+          sprintf('<span style="%s">%s</span>', style, char)
+        })
+
+        tags$span(
+          class = "msa-sequence",
+          style = "white-space: pre;",
+          HTML(paste(seq_html, collapse = ""))
+        )
+      }
+    ),
+
+    # Each unique sequence row
+    lapply(seq_len(n_unique), function(i) {
+      row <- unique_df[i, ]
+      seq_chars <- strsplit(row$sequence, "")[[1]]
+      seq_len_i <- length(seq_chars)
+
+      # Get all member IDs for this sequence
+      member_ids <- group_info[[row$sequence]]
+      n_members <- length(member_ids)
+
+      # Check selection status of members
+      any_selected <- any(member_ids %in% selected_ids)
+      member_sel_types <- sapply(member_ids, function(id) selection_types[[id]])
+      n_desired <- sum(member_sel_types == "desired", na.rm = TRUE)
+      n_avoid <- sum(member_sel_types == "avoid", na.rm = TRUE)
+
+      # Selection styling
+      sel_style <- if (n_desired > 0 && n_avoid == 0) {
+        paste0("border-left: 3px solid ", COLORS$desired, ";")
+      } else if (n_avoid > 0 && n_desired == 0) {
+        paste0("border-left: 3px solid ", COLORS$avoid, ";")
+      } else if (n_desired > 0 && n_avoid > 0) {
+        "border-left: 3px solid #999;"  # Mixed
+      } else ""
+
+      # Unique ID for collapsible (if multi-gene)
+      collapse_id <- paste0("genes-", gsub("[^a-zA-Z0-9]", "-", row$id))
+
+      # Container for row + collapsible
+      tags$div(
+        class = "sequence-group-container",
+
+        # Main row
+        tags$div(
+          class = "msa-row",
+          style = paste0(
+            "display: flex; align-items: center; padding: 2px 4px; margin: 1px 0; ",
+            sel_style,
+            if (any_selected) "background-color: #fafafa;" else ""
+          ),
+          `data-id` = row$id,
+          `data-members` = paste(member_ids, collapse = ","),
+
+          # Checkbox
+          tags$input(
+            type = "checkbox",
+            class = "trna-checkbox group-checkbox",
+            `data-group-members` = paste(member_ids, collapse = ","),
+            checked = if (any_selected) "checked" else NULL,
+            style = "margin-right: 8px; flex-shrink: 0;"
+          ),
+
+          # Label with count and expand button for multi-gene groups
+          tags$span(
+            class = "msa-id",
+            style = "width: 190px; flex-shrink: 0; font-size: 0.9em;",
+            if (n_members > 1) {
+              tags$span(
+                style = "cursor: pointer; color: #666;",
+                `data-bs-toggle` = "collapse",
+                `data-bs-target` = paste0("#", collapse_id),
+                tags$span(class = "expand-icon", style = "margin-right: 4px;", "\u25B6"),
+                paste0(n_members, " identical genes")
+              )
+            } else {
+              tags$span(style = "color: #666;", member_ids[1])
+            }
+          ),
+
+          # Sequence showing only differences from consensus
+          {
+            seq_html <- sapply(seq_len(max_len), function(pos) {
+              char <- if (pos <= seq_len_i) seq_chars[pos] else "-"
+              cons_char <- consensus_chars[pos]
+              is_anticodon <- !is.na(ac_start) && pos >= ac_start && pos <= ac_end
+              is_diff <- (char != cons_char)
+
+              if (is_anticodon) {
+                style <- paste0("background-color: ", COLORS$anticodon, "; font-weight: bold;")
+                sprintf('<span style="%s">%s</span>', style, char)
+              } else if (is_diff) {
+                color <- get_base_color(char)
+                # Use dark text for yellow (G), white for others
+                text_color <- if (toupper(char) == "G") "#333" else "white"
+                style <- paste0("background-color: ", color, "; color: ", text_color, "; font-weight: bold;")
+                sprintf('<span style="%s">%s</span>', style, char)
+              } else {
+                sprintf('<span style="color: #999;">%s</span>', char)
+              }
+            })
+
+            tags$span(
+              class = "msa-sequence",
+              style = "white-space: pre;",
+              HTML(paste(seq_html, collapse = ""))
+            )
+          }
+        ),
+
+        # Collapsible member list for multi-gene groups
+        if (n_members > 1) {
+          tags$div(
+            id = collapse_id,
+            class = "collapse",
+            style = "margin-left: 30px; padding: 5px 10px; background-color: #f9f9f9; border-left: 2px solid #ddd; font-size: 0.85em;",
+            tags$div(
+              style = "color: #555; margin-bottom: 5px; font-weight: 500;",
+              "Member genes:"
+            ),
+            lapply(member_ids, function(mid) {
+              sel_type <- selection_types[[mid]]
+              tags$div(
+                style = "padding: 2px 0;",
+                tags$input(
+                  type = "checkbox",
+                  class = "trna-checkbox member-checkbox",
+                  `data-id` = mid,
+                  checked = if (mid %in% selected_ids) "checked" else NULL,
+                  style = "margin-right: 6px;"
+                ),
+                tags$span(style = "font-family: monospace;", mid),
+                if (!is.null(sel_type)) {
+                  if (sel_type == "desired") {
+                    tags$span(style = paste0("color: ", COLORS$desired, "; margin-left: 5px;"), "\u2713")
+                  } else {
+                    tags$span(style = paste0("color: ", COLORS$avoid, "; margin-left: 5px;"), "\u2717")
+                  }
+                }
+              )
+            })
+          )
+        }
+      )
+    }),
+
+    # Legend
+    tags$div(
+      class = "msa-legend",
+      style = "margin-top: 10px; font-size: 0.8em; color: #666; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;",
+      tags$span("Variants: "),
+      tags$span(style = "background-color: #009E73; color: white; padding: 1px 6px;", "A"),
+      tags$span(style = "background-color: #D55E00; color: white; padding: 1px 6px;", "T"),
+      tags$span(style = "background-color: #F0E442; color: #333; padding: 1px 6px;", "G"),
+      tags$span(style = "background-color: #0072B2; color: white; padding: 1px 6px;", "C"),
+      tags$span(style = "margin-left: 10px;", "|"),
+      tags$span(style = paste0("background-color: ", COLORS$anticodon, "; padding: 1px 6px;"), "Anticodon")
+    )
+  )
+}
+
+# =============================================================================
 # Anticodon Detection
 # =============================================================================
 
@@ -244,6 +668,178 @@ format_trna_row_html <- function(trna_row, selected = FALSE,
 # Isoacceptor Family View
 # =============================================================================
 
+#' Render rows grouped by sequence identity
+#'
+#' Shows identical sequences as collapsed groups with expandable member lists
+#' and displays differences for non-identical sequences.
+#'
+#' @param group_df Data frame with sequence grouping (from group_by_sequence)
+#' @param selected_ids Character vector of selected tRNA IDs
+#' @param selection_types Named list mapping IDs to "desired" or "avoid"
+#' @return List of HTML elements
+render_grouped_rows <- function(group_df, selected_ids, selection_types) {
+  # Process each unique sequence group
+  unique_groups <- unique(group_df$sequence_group)
+  n_unique <- length(unique_groups)
+
+  lapply(seq_along(unique_groups), function(idx) {
+    grp_id <- unique_groups[idx]
+    members <- group_df[group_df$sequence_group == grp_id, ]
+    n_members <- nrow(members)
+    representative <- members[1, ]
+
+    # Check if any members are selected
+    member_ids <- members$id
+    any_selected <- any(member_ids %in% selected_ids)
+
+    # Get selection types for members
+    member_sel_types <- lapply(member_ids, function(id) selection_types[[id]])
+
+    # Determine label: first group vs isodecoder (different sequence)
+    is_first <- (idx == 1)
+
+    if (n_members == 1) {
+      # Single sequence
+      seq_label <- if (!is_first && n_unique > 1) {
+        tags$span(
+          class = "isodecoder-label",
+          style = "margin-left: 10px; font-size: 0.8em; color: #E69F00; font-style: italic;",
+          "isodecoder"
+        )
+      } else {
+        NULL
+      }
+
+      tags$div(
+        class = "sequence-group single",
+        format_trna_row_html(
+          representative,
+          selected = representative$id %in% selected_ids,
+          selection_type = selection_types[[representative$id]],
+          checkbox_id = paste0("chk-", gsub("[^a-zA-Z0-9]", "-", representative$id))
+        ),
+        seq_label
+      )
+
+    } else {
+      # Multiple identical sequences - show as collapsible group
+      group_id <- paste0("grp-", gsub("[^a-zA-Z0-9]", "-", representative$id))
+
+      # Determine group selection state
+      n_desired <- sum(unlist(member_sel_types) == "desired", na.rm = TRUE)
+      n_avoid <- sum(unlist(member_sel_types) == "avoid", na.rm = TRUE)
+
+      group_status <- if (n_desired == n_members) {
+        tags$span(style = paste0("color: ", COLORS$desired, ";"), " \u2713 all desired")
+      } else if (n_avoid == n_members) {
+        tags$span(style = paste0("color: ", COLORS$avoid, ";"), " \u2717 all avoid")
+      } else if (n_desired > 0 || n_avoid > 0) {
+        tags$span(style = "color: #666;",
+                  paste0(" (", n_desired, " desired, ", n_avoid, " avoid)"))
+      } else {
+        NULL
+      }
+
+      # Label for isodecoder groups (different sequence from first)
+      seq_label <- if (!is_first && n_unique > 1) {
+        tags$span(
+          class = "isodecoder-label",
+          style = "font-size: 0.8em; color: #E69F00; font-style: italic; margin-left: 5px;",
+          "isodecoder"
+        )
+      } else {
+        NULL
+      }
+
+      tags$div(
+        class = "sequence-group multiple",
+        style = "margin: 4px 0;",
+
+        # Collapsed view with expand button
+        tags$div(
+          class = "group-header",
+          style = paste0(
+            "display: flex; align-items: center; padding: 4px 8px; ",
+            "background-color: ", if (any_selected) "#f5f5f5" else "#fafafa", "; ",
+            "border-radius: 4px; cursor: pointer; ",
+            "white-space: nowrap; overflow-x: auto;"
+          ),
+          `data-bs-toggle` = "collapse",
+          `data-bs-target` = paste0("#", group_id),
+
+          # Checkbox for group (selects all)
+          tags$input(
+            type = "checkbox",
+            class = "trna-checkbox group-checkbox",
+            id = paste0("chk-", group_id),
+            `data-group-members` = paste(member_ids, collapse = ","),
+            checked = if (any_selected) "checked" else NULL,
+            style = "margin-right: 10px;"
+          ),
+
+          # Expand icon
+          tags$span(
+            class = "expand-icon",
+            style = "margin-right: 8px; color: #666;",
+            "\u25B6"  # Right-pointing triangle
+          ),
+
+          # Sequence with anticodon
+          format_sequence_html(
+            representative$sequence,
+            representative$anticodon_start,
+            representative$anticodon_end
+          ),
+
+          # Group count badge
+          tags$span(
+            class = "badge bg-secondary",
+            style = "margin-left: 10px;",
+            paste0(n_members, " identical")
+          ),
+
+          seq_label,
+          group_status
+        ),
+
+        # Expandable member list
+        tags$div(
+          id = group_id,
+          class = "collapse group-members",
+          style = "padding-left: 30px; border-left: 2px solid #e0e0e0; margin-left: 15px;",
+
+          lapply(seq_len(n_members), function(i) {
+            member <- members[i, ]
+            tags$div(
+              class = "group-member",
+              style = "padding: 2px 0; font-size: 0.9em;",
+              tags$input(
+                type = "checkbox",
+                class = "trna-checkbox member-checkbox",
+                `data-id` = member$id,
+                checked = if (member$id %in% selected_ids) "checked" else NULL,
+                style = "margin-right: 8px;"
+              ),
+              tags$span(
+                class = "trna-id",
+                style = "color: #666;",
+                member$id
+              ),
+              if (!is.null(selection_types[[member$id]])) {
+                if (selection_types[[member$id]] == "desired") {
+                  tags$span(style = paste0("color: ", COLORS$desired, "; margin-left: 5px;"), "\u2713")
+                } else {
+                  tags$span(style = paste0("color: ", COLORS$avoid, "; margin-left: 5px;"), "\u2717")
+                }
+              }
+            )
+          })
+        )
+      )
+    }
+  })
+}
+
 #' Render all tRNAs for an amino acid, grouped by isoacceptor
 #'
 #' Creates the main visualization showing all tRNAs for an amino acid,
@@ -339,11 +935,14 @@ render_amino_acid_view <- function(trna_df, amino_acid,
       # Sort by gene family and copy number
       group <- group[order(group$gene_family, group$copy_number), ]
 
+      # Count unique sequences
+      n_unique <- length(unique(group$sequence))
+
       tags$div(
         class = "isoacceptor-group",
         style = "margin-bottom: 20px;",
 
-        # Group header
+        # Group header with unique count
         tags$div(
           class = "isoacceptor-header",
           style = paste0(
@@ -353,24 +952,21 @@ render_amino_acid_view <- function(trna_df, amino_acid,
             "border-left: 4px solid ", COLORS$header, ";"
           ),
           paste0("Isoacceptor: ", amino_acid, "-", anticodon,
-                 " (", n_genes, " gene", if (n_genes != 1) "s" else "", ")")
+                 " (", n_genes, " gene", if (n_genes != 1) "s" else "", ")"),
+          if (n_unique < n_genes) {
+            tags$span(
+              style = "font-weight: normal; color: #666; margin-left: 10px;",
+              paste0("\u2014 ", n_unique, " unique sequence",
+                     if (n_unique != 1) "s" else "")
+            )
+          }
         ),
 
-        # tRNA rows
+        # MSA view showing aligned sequences with differences highlighted
         tags$div(
-          class = "isoacceptor-rows",
-          style = "padding-left: 10px;",
-          lapply(seq_len(nrow(group)), function(i) {
-            row <- group[i, ]
-            is_selected <- row$id %in% selected_ids
-            sel_type <- selection_types[[row$id]]
-            format_trna_row_html(
-              row,
-              selected = is_selected,
-              selection_type = sel_type,
-              checkbox_id = paste0("chk-", gsub("[^a-zA-Z0-9]", "-", row$id))
-            )
-          })
+          class = "isoacceptor-msa",
+          style = "padding: 10px 0;",
+          render_msa_view(group, selected_ids, selection_types)
         )
       )
     }),
@@ -533,6 +1129,27 @@ get_visualization_css <- function() {
       padding: 10px;
       margin-bottom: 15px;
       font-size: 0.9em;
+    }
+
+    .sequence-group {
+      margin: 2px 0;
+    }
+
+    .group-header {
+      white-space: nowrap;
+      overflow-x: auto;
+    }
+
+    .group-header:hover {
+      background-color: #f0f0f0 !important;
+    }
+
+    .diff-info {
+      flex-shrink: 0;
+    }
+
+    .isoacceptor-rows {
+      overflow-x: auto;
     }
   ")))
 }

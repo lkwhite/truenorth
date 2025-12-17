@@ -1546,9 +1546,18 @@ render_multi_target_hybridization <- function(targets_df, probe_sequence,
     seq_len <- nchar(full_seq)
     full_seq_chars <- strsplit(full_seq, "")[[1]]
 
+    # Get anticodon positions
+    ac_start <- representative$anticodon_start
+    ac_end <- representative$anticodon_end
+    has_anticodon <- !is.null(ac_start) && !is.na(ac_start) &&
+                     !is.null(ac_end) && !is.na(ac_end)
+
     # Build HTML for full sequence with probe region highlighted
     full_seq_html_parts <- list()
     for (i in seq_along(full_seq_chars)) {
+      # Check if this position is in the anticodon
+      in_anticodon <- has_anticodon && i >= ac_start && i <= ac_end
+
       if (i >= start && i <= end) {
         # This position is in the probe binding region
         region_idx <- i - start + 1
@@ -1578,6 +1587,12 @@ render_multi_target_hybridization <- function(targets_df, probe_sequence,
             full_seq_chars[i]
           )
         }
+      } else if (in_anticodon) {
+        # Anticodon region (outside probe) - black text on light yellow background
+        full_seq_html_parts[[i]] <- sprintf(
+          '<span style="background-color: #FFF3CD; color: black; font-weight: bold;">%s</span>',
+          full_seq_chars[i]
+        )
       } else {
         # Outside probe region - gray
         full_seq_html_parts[[i]] <- sprintf(

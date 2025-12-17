@@ -223,7 +223,7 @@ render_isoacceptor_ui <- function(ns, trna_data) {
     card_id <- paste0("ac_card_", row$anticodon)
 
     tags$div(
-      class = "col-md-3 col-sm-4 mb-3",
+      class = "col-lg-2 col-md-3 col-sm-4 col-6 mb-2",
       tags$div(
         id = ns(card_id),
         class = "card goal-card anticodon-card",
@@ -233,12 +233,11 @@ render_isoacceptor_ui <- function(ns, trna_data) {
           ns("selected_anticodon"), row$anticodon
         ),
         tags$div(
-          class = "card-body text-center py-3",
-          tags$h5(class = "card-title mb-1", row$anticodon),
+          class = "card-body text-center py-2",
+          tags$h6(class = "card-title mb-0", row$anticodon),
           tags$small(class = "text-muted", row$amino_acid),
           tags$div(
-            class = "mt-2",
-            tags$span(class = "badge bg-secondary", paste(row$n_genes, "genes"))
+            tags$span(class = "badge bg-secondary", style = "font-size: 0.7em;", paste(row$n_genes, "genes"))
           )
         )
       )
@@ -277,7 +276,7 @@ render_amino_acid_ui <- function(ns, trna_data) {
     if (is.na(code)) code <- substr(row$amino_acid, 1, 1)
 
     tags$div(
-      class = "col-md-2 col-sm-3 col-4 mb-3",
+      class = "col-lg-1 col-md-2 col-sm-3 col-4 mb-2",
       tags$div(
         id = ns(paste0("aa_card_", row$amino_acid)),
         class = "card goal-card amino-acid-card",
@@ -287,13 +286,13 @@ render_amino_acid_ui <- function(ns, trna_data) {
           ns("selected_amino_acid"), row$amino_acid
         ),
         tags$div(
-          class = "card-body text-center py-2",
+          class = "card-body text-center py-1 px-1",
           tags$div(
-            style = "font-size: 1.8em; font-weight: bold; color: #0072B2;",
+            style = "font-size: 1.5em; font-weight: bold; color: #0072B2;",
             code
           ),
-          tags$small(class = "d-block", row$amino_acid),
-          tags$small(class = "text-muted",
+          tags$small(class = "d-block", style = "font-size: 0.75em;", row$amino_acid),
+          tags$small(class = "text-muted", style = "font-size: 0.7em;",
                      paste(row$n_genes, "genes"))
         )
       )

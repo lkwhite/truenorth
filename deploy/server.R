@@ -276,6 +276,16 @@ server <- function(input, output, session) {
 
   observeEvent(input$wizard_next, {
     if (values$wizard_step < 4) {
+      # Validate before advancing
+      if (values$wizard_step == 1 && is.null(values$wizard_goal)) {
+        showNotification("Please select a goal first", type = "warning")
+        return()
+      }
+      if (values$wizard_step == 2 && length(values$wizard_selection$ids) == 0) {
+        showNotification("Please make a selection first", type = "warning")
+        return()
+      }
+
       # Run feasibility analysis when moving to step 3
       if (values$wizard_step == 2) {
         run_feasibility_analysis()

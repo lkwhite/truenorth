@@ -2,6 +2,8 @@
 
 **tRNA-Resolved Utility for Evaluating Northern Oligo Reference Targets via Hybridization**
 
+> ⚠️ **In Development** - This tool is under active development. Features may change, and results should be validated experimentally before use in critical applications. Use at your own risk.
+
 A Shiny web application for designing northern blot probes targeting tRNAs with high specificity.
 
 ![TRUENORTH Screenshot](www/screenshot.png)

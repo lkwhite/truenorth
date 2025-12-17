@@ -2,11 +2,11 @@
 
 **Last Updated:** 2024-12-16
 
-## Project Status: Visualization Layer In Progress
+## Project Status: Functional MVP
 
-## Current Phase: Phase 1 MVP (Algorithms Done, Visualization Started)
+## Current Phase: Phase 1 MVP Complete - Refinements
 
-Core probe design algorithms implemented. Visualization layer with anticodon highlighting and isoacceptor family views added. Shiny app UI next.
+Full wizard-based probe design workflow working. Hybridization diagrams with multi-target and off-target analysis. Compartment filtering (nuclear vs mito).
 
 ---
 
@@ -14,8 +14,9 @@ Core probe design algorithms implemented. Visualization layer with anticodon hig
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Shiny app skeleton | Not Started | Basic UI layout |
-| Shiny module for sequence browser | Not Started | Interactive selection UI |
+| Tm modification warning | Next | Add note that Tm is for unmodified sequence |
+| Probe ranking adjustment | Next | Factor in modification-prone regions when ranking |
+| Hybridization temp input | Future | Let user set hyb temp to show ΔT |
 
 ---
 
@@ -23,6 +24,12 @@ Core probe design algorithms implemented. Visualization layer with anticodon hig
 
 | Task | Date | Notes |
 |------|------|-------|
+| Hybridization diagrams | 2024-12-16 | Multi-target view with mismatch highlighting, Tm display |
+| Off-target analysis | 2024-12-16 | Shows closest off-targets with specificity alerts |
+| Compartment filtering | 2024-12-16 | Nuclear vs Mitochondrial toggle, cross-compartment off-target check |
+| Show all toggles | 2024-12-16 | Toggle between top N and all results |
+| Selection visual feedback | 2024-12-16 | Cards highlight when selected |
+| Full Shiny wizard | 2024-12-16 | 4-step workflow: Goal → Selection → Feasibility → Design |
 | Create CLAUDE.md | 2024-12-16 | Project instructions |
 | Create PROJECT_TRACKER.md | 2024-12-16 | This file |
 | R/sequence_utils.R | 2024-12-16 | FASTA parsing, header parsing, filtering |

@@ -27,15 +27,19 @@ compass/
 │   ├── global.R                 # Global variables and setup
 │   └── modules/                 # Shiny modules
 ├── R/                           # Core R functions (non-Shiny)
-│   ├── probe_design.R           # Probe design algorithms
-│   ├── sequence_utils.R         # Sequence manipulation
-│   ├── thermodynamics.R         # Tm calculations, etc.
-│   └── validation.R             # Input validation
+│   ├── sequence_utils.R         # FASTA parsing, header parsing
+│   ├── similarity.R             # Pre-computed pairwise alignment
+│   ├── probe_design.R           # Probe generation, Tm/GC calculations
+│   ├── validation.R             # Specificity checking, off-target analysis
+│   └── target_selection.R       # Hierarchical selection, divergence analysis
 ├── data/                        # Reference data
-│   └── fastas/                  # Reference tRNA sequences
-│       ├── human/
-│       ├── yeast/
-│       └── ecoli/
+│   ├── fastas/                  # Reference tRNA sequences
+│   │   ├── human/
+│   │   ├── yeast/
+│   │   └── ecoli/
+│   └── similarity/              # Pre-computed similarity matrices (RDS)
+├── scripts/                     # Utility scripts
+│   └── generate_similarity_data.R
 ├── tests/                       # Unit tests
 │   └── testthat/
 ├── www/                         # Static web assets

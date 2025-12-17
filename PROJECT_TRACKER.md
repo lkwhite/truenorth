@@ -14,9 +14,8 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Generate similarity data | Pending | Run `scripts/generate_similarity_data.R` |
-| Integration testing | Pending | Run `tests/test_integration.R` |
 | Shiny app skeleton | Not Started | Basic UI layout |
+| Visualization layer | Not Started | Heatmaps, alignment views |
 
 ---
 
@@ -31,6 +30,9 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 | R/probe_design.R | 2024-12-16 | Probe generation, Tm (NN method), GC calculation |
 | R/validation.R | 2024-12-16 | Specificity checking, off-target analysis |
 | Unit tests | 2024-12-16 | tests/testthat/ for all modules |
+| Similarity data cache | 2024-12-16 | Pre-computed for human, yeast, ecoli |
+| R/target_selection.R | 2024-12-16 | Hierarchical target selection, divergence analysis |
+| Integration tests | 2024-12-16 | Full workflow verified |
 
 ---
 
@@ -48,6 +50,8 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 - [x] Isoacceptor discrimination analysis
 - [x] Visual alignment of probes to targets (text-based)
 - [x] Highlight unique/divergent regions
+- [x] Hierarchical target selection (desired/avoid groups)
+- [x] Position-by-position divergence analysis
 - [ ] Cross-organism specificity checking
 
 ### Phase 3: Advanced Features
@@ -88,10 +92,13 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 | `PROJECT_TRACKER.md` | This file - task tracking |
 | `R/sequence_utils.R` | FASTA parsing, header parsing, filtering |
 | `R/similarity.R` | Pre-computed similarity, divergent region detection |
-| `R/probe_design.R` | Probe generation, Tm/GC calculations |
+| `R/probe_design.R` | Probe generation, Tm/GC calculations, selective design |
 | `R/validation.R` | Specificity checking, off-target analysis |
+| `R/target_selection.R` | Hierarchical selection, divergence analysis |
 | `scripts/generate_similarity_data.R` | Generate cached similarity matrices |
 | `tests/test_integration.R` | Quick integration test |
+| `tests/test_hierarchical_selection.R` | Hierarchical selection demo |
+| `data/similarity/*.rds` | Pre-computed similarity matrices |
 | `app/ui.R` | Shiny user interface (to create) |
 | `app/server.R` | Shiny server logic (to create) |
 
@@ -106,6 +113,19 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 ---
 
 ## Session Notes
+
+### 2024-12-16 - Hierarchical Target Selection
+- Added `R/target_selection.R` with:
+  - `build_trna_hierarchy()`: View AA → anticodon → family → copy tree
+  - `select_trnas()`: Filter by include/exclude at any level
+  - `create_target_selection()`: Define desired and avoid groups
+  - `analyze_group_conservation()`: How similar are desired targets?
+  - `analyze_group_divergence()`: How different are desired vs avoid?
+  - `analyze_region_divergence()`: Position-by-position analysis
+  - `find_selective_regions()`: Find optimal probe regions
+- Added `design_probes_selective()` to probe_design.R
+- Generated and cached similarity data for all 3 organisms
+- All integration tests passing
 
 ### 2024-12-16 - Core Algorithms Implementation
 - Implemented all 4 R modules:

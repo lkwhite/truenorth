@@ -49,6 +49,55 @@ wizardStep2Server <- function(id, values) {
       )
     })
 
+    # Update anticodon filter when amino acid filter changes (for specific selection)
+    observeEvent(input$filter_amino_acid, {
+      req(values$trna_data)
+
+      if (is.null(input$filter_amino_acid) || input$filter_amino_acid == "") {
+        # Show all anticodons
+        anticodons <- sort(unique(values$trna_data$anticodon))
+      } else {
+        # Filter anticodons by selected amino acid
+        filtered <- values$trna_data[values$trna_data$amino_acid == input$filter_amino_acid, ]
+        anticodons <- sort(unique(filtered$anticodon))
+      }
+
+      updateSelectInput(
+        session,
+        "filter_anticodon",
+        choices = c("All" = "", anticodons),
+        selected = ""
+      )
+    }, ignoreNULL = FALSE)
+
+    # Update tRNA checkbox list when filters change
+    observe({
+      req(values$trna_data)
+      req(values$wizard_goal == "specific")
+
+      filtered_data <- values$trna_data
+
+      # Apply amino acid filter
+      if (!is.null(input$filter_amino_acid) && input$filter_amino_acid != "") {
+        filtered_data <- filtered_data[filtered_data$amino_acid == input$filter_amino_acid, ]
+      }
+
+      # Apply anticodon filter
+      if (!is.null(input$filter_anticodon) && input$filter_anticodon != "") {
+        filtered_data <- filtered_data[filtered_data$anticodon == input$filter_anticodon, ]
+      }
+
+      # Update checkbox choices while preserving selections
+      current_selection <- input$selected_trnas %||% character()
+
+      updateCheckboxGroupInput(
+        session,
+        "selected_trnas",
+        choices = setNames(filtered_data$id, format_trna_id(filtered_data$id)),
+        selected = intersect(current_selection, filtered_data$id)
+      )
+    })
+
     # Handle specific isodecoder selection
     observeEvent(input$selected_trnas, {
       if (!is.null(values$wizard_goal) && values$wizard_goal == "specific") {

@@ -35,6 +35,76 @@ NN_PARAMS <- list(
 # Gas constant in cal/(mol·K)
 R_GAS <- 1.987
 
+#' Known modification-prone regions in tRNAs
+#'
+#' Returns a list of regions with modification risk levels.
+#' Positions are approximate and based on canonical tRNA numbering.
+#'
+#' @param seq_length Length of tRNA sequence (for scaling)
+#' @return Data frame with start, end, risk (1-3), and description
+#' @export
+get_modification_zones <- function(seq_length = 76) {
+  # Scale positions based on typical 76nt tRNA
+  scale <- seq_length / 76
+
+  zones <- data.frame(
+    start = round(c(
+      16,   # D-loop start
+      34,   # Anticodon
+      54    # TΨC loop
+    ) * scale),
+    end = round(c(
+      20,   # D-loop end
+      37,   # Anticodon + position 37
+      56    # TΨC loop end
+    ) * scale),
+    risk = c(2, 3, 2),  # 1=low, 2=moderate, 3=high
+    description = c(
+      "D-loop (dihydrouridine)",
+      "Anticodon loop (heavily modified)",
+      "TΨC loop (pseudouridine, methylation)"
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  zones
+}
+
+#' Calculate modification penalty for a probe region
+#'
+#' Higher values = more modification risk = worse for hybridization
+#'
+#' @param start Probe start position
+#' @param end Probe end position
+#' @param seq_length tRNA sequence length
+#' @return Numeric penalty score (0 = no modifications, higher = worse)
+#' @export
+calculate_modification_penalty <- function(start, end, seq_length = 76) {
+  zones <- get_modification_zones(seq_length)
+
+  penalty <- 0
+  for (i in 1:nrow(zones)) {
+    zone <- zones[i, ]
+    # Check for overlap
+    overlap_start <- max(start, zone$start)
+    overlap_end <- min(end, zone$end)
+
+    if (overlap_start <= overlap_end) {
+      # Has overlap - penalty proportional to overlap and risk
+      overlap_length <- overlap_end - overlap_start + 1
+      probe_length <- end - start + 1
+      overlap_fraction <- overlap_length / probe_length
+
+      # Penalty scales with risk level and overlap fraction
+      # Risk 3 (anticodon): up to 30 points
+      # Risk 2 (D-loop, TΨC): up to 15 points
+      penalty <- penalty + (zone$risk * 10 * overlap_fraction)
+    }
+  }
+
+  penalty
+}
+
 #' Calculate GC content of a sequence
 #'
 #' @param sequence DNA sequence string
@@ -540,20 +610,22 @@ design_probes_selective <- function(selection,
 
   probes <- bind_rows(all_probes)
 
-  # Score probes with anticodon penalty
+  # Calculate modification penalty for each probe
+  probes$modification_penalty <- sapply(1:nrow(probes), function(i) {
+    calculate_modification_penalty(probes$start[i], probes$end[i], ref_len)
+  })
+
+  # Score probes with modification penalty
   probes$score <- sapply(1:nrow(probes), function(i) {
     base_score <- score_probe(probes[i, ])
     # Bonus for selectivity
     selectivity_bonus <- probes$selectivity_score[i] / 2
 
-    # Anticodon penalty - probes overlapping heavily modified region score lower
-    anticodon_penalty <- 0
-    if (avoid_anticodon && probes$overlaps_anticodon[i]) {
-      # Significant penalty - effectively requires ~3-4nt longer probe to compete
-      anticodon_penalty <- 25
-    }
+    # Modification penalty - probes overlapping modified regions score lower
+    # This replaces the simple anticodon penalty with position-aware scoring
+    mod_penalty <- probes$modification_penalty[i]
 
-    base_score + selectivity_bonus - anticodon_penalty
+    base_score + selectivity_bonus - mod_penalty
   })
 
   # Sort and rank

@@ -14,8 +14,6 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Tm modification warning | Next | Add note that Tm is for unmodified sequence |
-| Probe ranking adjustment | Next | Factor in modification-prone regions when ranking |
 | Hybridization temp input | Future | Let user set hyb temp to show ΔT |
 
 ---
@@ -24,6 +22,8 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 
 | Task | Date | Notes |
 |------|------|-------|
+| Tm modification warning | 2024-12-16 | Added asterisk + footnote explaining Tm is for unmodified sequences |
+| Modification-aware ranking | 2024-12-16 | Probes penalized for D-loop, anticodon, TΨC overlap (not just anticodon) |
 | Hybridization diagrams | 2024-12-16 | Multi-target view with mismatch highlighting, Tm display |
 | Off-target analysis | 2024-12-16 | Shows closest off-targets with specificity alerts |
 | Compartment filtering | 2024-12-16 | Nuclear vs Mitochondrial toggle, cross-compartment off-target check |
@@ -127,6 +127,25 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 ---
 
 ## Session Notes
+
+### 2024-12-16 - Modification-Aware Probe Ranking
+- Added `get_modification_zones()` to `R/probe_design.R`:
+  - Defines 3 modification-prone regions: D-loop (16-20), Anticodon (34-37), TΨC loop (54-56)
+  - Risk levels: 3 (high) for anticodon, 2 (moderate) for D-loop and TΨC
+  - Positions scale with tRNA length (based on canonical 76nt)
+- Added `calculate_modification_penalty()`:
+  - Returns penalty score based on probe overlap with modified regions
+  - Anticodon overlap: up to 30 points penalty
+  - D-loop/TΨC overlap: up to 15 points penalty
+- Updated probe scoring in `design_probes_selective()`:
+  - Now uses comprehensive modification penalty instead of simple anticodon flag
+  - `modification_penalty` column added to probe results
+- UI updates in `wizard_step4.R`:
+  - Tm display has asterisk with tooltip explaining it's for unmodified sequences
+  - Footnote below properties table with modification warning
+  - Probe table shows ⚠ for moderate risk, ⚠⚠ for high risk probes
+  - Alert message explains which modification region is overlapped
+  - CSV export includes `modification_penalty` column
 
 ### 2024-12-16 - Hybridization Diagram
 - Added `render_hybridization_diagram()` to `R/visualization.R`:

@@ -181,8 +181,19 @@ wizardStep4Server <- function(id, values) {
         stringsAsFactors = FALSE
       )
 
-      # Add warning icon for anticodon overlap
-      if ("overlaps_anticodon" %in% names(probes)) {
+      # Add warning icon for modification risk
+      if ("modification_penalty" %in% names(probes)) {
+        display_df$Region <- ifelse(
+          probes$modification_penalty >= 20,
+          paste0(probes$trna_region, " \u26A0\u26A0"),  # High risk: double warning
+          ifelse(
+            probes$modification_penalty >= 10,
+            paste0(probes$trna_region, " \u26A0"),  # Moderate risk: single warning
+            probes$trna_region
+          )
+        )
+      } else if ("overlaps_anticodon" %in% names(probes)) {
+        # Legacy fallback
         display_df$Region <- ifelse(
           probes$overlaps_anticodon,
           paste0(probes$trna_region, " \u26A0"),
@@ -217,22 +228,34 @@ wizardStep4Server <- function(id, values) {
 
       probe <- values$wizard_probes[selected, ]
 
-      # Check for anticodon overlap
-      has_anticodon_overlap <- if ("overlaps_anticodon" %in% names(probe)) {
-        probe$overlaps_anticodon
+      # Check modification penalty level
+      mod_penalty <- if ("modification_penalty" %in% names(probe)) {
+        probe$modification_penalty
+      } else if ("overlaps_anticodon" %in% names(probe) && probe$overlaps_anticodon) {
+        25  # Legacy fallback
       } else {
-        FALSE
+        0
+      }
+
+      # Determine modification risk level
+      mod_risk <- if (mod_penalty >= 20) {
+        list(level = "high", class = "alert-warning",
+             message = "This probe overlaps heavily modified regions (anticodon loop). Hybridization efficiency may be significantly reduced.")
+      } else if (mod_penalty >= 10) {
+        list(level = "moderate", class = "alert-info",
+             message = "This probe overlaps moderately modified regions (D-loop or T\u03A8C loop). Some impact on hybridization possible.")
+      } else {
+        NULL
       }
 
       tagList(
-        # Anticodon warning if applicable
-        if (has_anticodon_overlap) {
+        # Modification warning if applicable
+        if (!is.null(mod_risk)) {
           tags$div(
-            class = "alert alert-warning py-2 mb-3",
+            class = paste("alert py-2 mb-3", mod_risk$class),
             icon("exclamation-triangle"),
-            tags$strong(" Note: "),
-            "This probe overlaps the anticodon region, which is heavily modified. ",
-            "Hybridization efficiency may be reduced."
+            tags$strong(" Modification note: "),
+            mod_risk$message
           )
         },
 
@@ -271,7 +294,14 @@ wizardStep4Server <- function(id, values) {
                 ),
                 tags$tr(
                   tags$td("Melting Temp:"),
-                  tags$td(tags$strong(sprintf("%.1f\u00B0C", probe$tm_nn)))
+                  tags$td(
+                    tags$strong(sprintf("%.1f\u00B0C", probe$tm_nn)),
+                    tags$sup(
+                      style = "color: #E69F00; cursor: help;",
+                      title = "Calculated for unmodified DNA/RNA. tRNA modifications may reduce effective Tm by 5-15\u00B0C.",
+                      " *"
+                    )
+                  )
                 ),
                 tags$tr(
                   tags$td("GC Content:"),
@@ -290,11 +320,17 @@ wizardStep4Server <- function(id, values) {
           )
         ),
 
-        # Reference sequence info
+        # Reference sequence info and Tm footnote
         tags$div(
           class = "mt-3",
           tags$small(class = "text-muted",
-                     "Reference: ", format_trna_id(probe$reference_id))
+                     "Reference: ", format_trna_id(probe$reference_id)),
+          tags$br(),
+          tags$small(
+            style = "color: #E69F00;",
+            "* Tm calculated for unmodified sequences. tRNA bases are heavily modified, ",
+            "especially in the anticodon loop. Actual hybridization efficiency may vary."
+          )
         ),
 
         # Hybridization diagram - Targets
@@ -481,6 +517,7 @@ wizardStep4Server <- function(id, values) {
           quality = probes$quality,
           target_conservation = round(probes$desired_conservation, 1),
           selectivity_score = round(probes$selectivity_score, 1),
+          modification_penalty = if ("modification_penalty" %in% names(probes)) round(probes$modification_penalty, 1) else NA,
           overlaps_anticodon = probes$overlaps_anticodon,
           reference_id = probes$reference_id,
           stringsAsFactors = FALSE

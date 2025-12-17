@@ -37,7 +37,7 @@ if (!require("BiocManager", quietly = TRUE))
 BiocManager::install("Biostrings")
 
 # Clone and run
-git clone https://github.com/yourusername/truenorth.git
+git clone https://github.com/lkwhite/truenorth.git
 cd truenorth
 Rscript -e "shiny::runApp('app')"
 ```

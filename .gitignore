@@ -9,12 +9,14 @@ renv/staging/
 renv/python/
 renv/.cache/
 
-# Shiny
+# Shiny deployment
 rsconnect/
+.shinyapps/
 
 # IDE
 .vscode/
 *.Rproj
+.idea/
 
 # OS
 .DS_Store
@@ -30,3 +32,9 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Claude Code
+.claude/
+
+# Session files
+*.Rproj.user/

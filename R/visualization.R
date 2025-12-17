@@ -1541,6 +1541,59 @@ render_multi_target_hybridization <- function(targets_df, probe_sequence,
       )
     } else NULL
 
+    # Build full tRNA sequence display with probe region highlighted
+    full_seq <- representative$sequence
+    seq_len <- nchar(full_seq)
+    full_seq_chars <- strsplit(full_seq, "")[[1]]
+
+    # Build HTML for full sequence with probe region highlighted
+    full_seq_html_parts <- list()
+    for (i in seq_along(full_seq_chars)) {
+      if (i >= start && i <= end) {
+        # This position is in the probe binding region
+        region_idx <- i - start + 1
+        if (region_idx <= length(region_chars)) {
+          target_base <- toupper(region_chars[region_idx])
+          probe_base <- if (region_idx <= length(probe_chars)) toupper(probe_chars[region_idx]) else "?"
+          is_match <- (target_base == "A" && probe_base == "T") ||
+                      (target_base == "T" && probe_base == "A") ||
+                      (target_base == "G" && probe_base == "C") ||
+                      (target_base == "C" && probe_base == "G")
+          if (is_match) {
+            # Matching base - highlight with blue background
+            full_seq_html_parts[[i]] <- sprintf(
+              '<span style="background-color: #0072B2; color: white;">%s</span>',
+              full_seq_chars[i]
+            )
+          } else {
+            # Mismatch - highlight with red background
+            full_seq_html_parts[[i]] <- sprintf(
+              '<span style="background-color: #D55E00; color: white; font-weight: bold;">%s</span>',
+              full_seq_chars[i]
+            )
+          }
+        } else {
+          full_seq_html_parts[[i]] <- sprintf(
+            '<span style="background-color: #0072B2; color: white;">%s</span>',
+            full_seq_chars[i]
+          )
+        }
+      } else {
+        # Outside probe region - gray
+        full_seq_html_parts[[i]] <- sprintf(
+          '<span style="color: #999;">%s</span>',
+          full_seq_chars[i]
+        )
+      }
+    }
+    full_seq_html <- paste(unlist(full_seq_html_parts), collapse = "")
+
+    # Build position markers (show positions at start, probe start, probe end, and end)
+    # Create a line with position numbers at key points
+    pos_markers <- rep(" ", seq_len)
+    marker_positions <- c(1, start, end, seq_len)
+    marker_positions <- unique(sort(marker_positions))
+
     # Build this target's display
     target_element <- tags$div(
       style = if (idx > 1) "margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ddd;" else "",
@@ -1555,16 +1608,47 @@ render_multi_target_hybridization <- function(targets_df, probe_sequence,
         tm_display
       ),
 
-      # Sequence alignment
-      tags$pre(
-        style = "font-family: 'Courier New', Consolas, monospace; font-size: 0.9em; line-height: 1.5; margin: 0; background: transparent;",
+      # Full tRNA sequence with probe region highlighted
+      tags$div(
+        style = "font-family: 'Courier New', Consolas, monospace; font-size: 0.85em; line-height: 1.4; margin: 0; background: transparent; overflow-x: auto;",
+        # Position indicator
+        tags$div(
+          style = "color: #999; font-size: 0.8em;",
+          sprintf("5' [1]%s[%d] 3'", paste(rep("-", min(seq_len - 6, 60)), collapse = ""), seq_len)
+        ),
+        # Full sequence
         HTML(paste0(
           '<span style="color: #0072B2;">5\u2032 </span>',
-          region_html,
-          '<span style="color: #0072B2;"> 3\u2032</span>\n',
-          '<span style="color: #009E73;">   ', pairing_line, '</span>\n',
-          '<span style="color: #D55E00;">3\u2032 ', probe_reversed, ' 5\u2032</span>'
-        ))
+          full_seq_html,
+          '<span style="color: #0072B2;"> 3\u2032</span>'
+        )),
+        # Position annotation
+        tags$div(
+          style = "color: #666; font-size: 0.8em; margin-top: 2px;",
+          sprintf("   %sprobe: %d-%d%s",
+                  paste(rep(" ", start - 1), collapse = ""),
+                  start, end,
+                  paste(rep(" ", max(0, seq_len - end)), collapse = ""))
+        )
+      ),
+
+      # Probe alignment detail (just the binding region)
+      tags$div(
+        style = "margin-top: 8px; padding: 8px; background: #f0f0f0; border-radius: 4px;",
+        tags$div(
+          style = "font-size: 0.8em; color: #666; margin-bottom: 4px;",
+          sprintf("Probe binding detail (positions %d-%d):", start, end)
+        ),
+        tags$pre(
+          style = "font-family: 'Courier New', Consolas, monospace; font-size: 0.85em; line-height: 1.5; margin: 0; background: transparent;",
+          HTML(paste0(
+            '<span style="color: #0072B2;">5\u2032 </span>',
+            region_html,
+            '<span style="color: #0072B2;"> 3\u2032</span>  tRNA\n',
+            '<span style="color: #009E73;">   ', pairing_line, '</span>\n',
+            '<span style="color: #D55E00;">3\u2032 ', probe_reversed, ' 5\u2032</span>  probe'
+          ))
+        )
       )
     )
 

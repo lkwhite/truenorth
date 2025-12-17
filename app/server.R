@@ -28,7 +28,12 @@ server <- function(input, output, session) {
     # Analysis results
     wizard_feasibility = NULL,  # Feasibility analysis results
     wizard_probes = NULL,       # Designed probes
-    design_params = NULL        # Design parameters from step 3
+    design_params = NULL,       # Design parameters from step 3
+
+    # Coverage tracking
+    coverage_data = NULL,       # Coverage matrix and related data
+    coverage_estimate = NULL,   # Estimated probes needed for coverage levels
+    selected_probes = integer() # User-selected probe ranks for export
   )
 
   # ===========================================================================
@@ -55,6 +60,9 @@ server <- function(input, output, session) {
     values$wizard_feasibility <- NULL
     values$wizard_probes <- NULL
     values$design_params <- NULL
+    values$coverage_data <- NULL
+    values$coverage_estimate <- NULL
+    values$selected_probes <- integer()
 
     removeNotification("loading")
 
@@ -84,6 +92,9 @@ server <- function(input, output, session) {
     values$wizard_feasibility <- NULL
     values$wizard_probes <- NULL
     values$design_params <- NULL
+    values$coverage_data <- NULL
+    values$coverage_estimate <- NULL
+    values$selected_probes <- integer()
 
     compartment_label <- if (compartment == "nuclear") "nuclear/cytoplasmic" else "mitochondrial"
     showNotification(
@@ -220,6 +231,9 @@ server <- function(input, output, session) {
     values$wizard_feasibility <- NULL
     values$wizard_probes <- NULL
     values$design_params <- NULL
+    values$coverage_data <- NULL
+    values$coverage_estimate <- NULL
+    values$selected_probes <- integer()
   })
 
   # Reset wizard when logo is clicked
@@ -231,6 +245,9 @@ server <- function(input, output, session) {
     values$wizard_feasibility <- NULL
     values$wizard_probes <- NULL
     values$design_params <- NULL
+    values$coverage_data <- NULL
+    values$coverage_estimate <- NULL
+    values$selected_probes <- integer()
   })
 
   # ===========================================================================
@@ -301,11 +318,14 @@ server <- function(input, output, session) {
     }
 
     # max_cross_identity = how similar the CLOSEST non-target is (lower = more specific)
-    # This is the key metric - we want this to be low
+    # mean_cross_identity = average similarity to all non-targets
     max_similarity <- divergence$max_cross_identity %||% 100
+    mean_similarity <- divergence$mean_cross_identity %||% 50
 
-    # Determine status based on both conservation within targets AND specificity from non-targets
-    # Lower max_similarity = easier to design specific probes
+    # Use both max and mean to determine feasibility
+    # High max but low mean = one close relative (common for same amino acid family) - still workable
+    # High max AND high mean = genuinely hard to distinguish
+
     if (max_similarity <= 70) {
       # Non-targets are quite different - good specificity potential
       if (cons_pct >= 90) {
@@ -328,11 +348,22 @@ server <- function(input, output, session) {
                     message = "May need careful region selection"))
       }
     } else if (max_similarity <= 90) {
-      return(list(status = "challenging", label = "Challenging",
-                  message = "Some non-targets are similar; careful region selection needed"))
+      return(list(status = "moderate", label = "Moderate",
+                  message = "Some related tRNAs are similar; probe design will find distinguishing regions"))
+    } else if (max_similarity <= 97) {
+      # High max similarity - but check mean to see if it's just one close relative
+      if (mean_similarity <= 50) {
+        # Low mean = just a few close relatives (e.g., same amino acid family)
+        return(list(status = "moderate", label = "Moderate",
+                    message = "Close relatives exist (likely same amino acid); probe design can usually distinguish"))
+      } else {
+        return(list(status = "challenging", label = "Challenging",
+                    message = "Several similar non-targets; careful region selection needed"))
+      }
     } else {
-      return(list(status = "not-feasible", label = "Not Feasible",
-                  message = "Targets too similar to non-targets for specific detection"))
+      # >97% similar - nearly identical sequences
+      return(list(status = "not-feasible", label = "Very Challenging",
+                  message = "Very high similarity to some non-targets; distinguishing may be difficult"))
     }
   }
 
@@ -376,7 +407,61 @@ server <- function(input, output, session) {
         avoid_anticodon = params$avoid_anticodon
       )
 
-      values$wizard_probes <- result$probes
+      # Build coverage matrix for the designed probes
+      targets_df <- values$trna_data[values$trna_data$id %in% values$wizard_selection$ids, ]
+
+      if (nrow(result$probes) > 0 && nrow(targets_df) > 0) {
+        coverage_result <- build_coverage_matrix(
+          probes = result$probes,
+          targets_df = targets_df,
+          max_mismatches = 3
+        )
+
+        probes_final <- coverage_result$probes
+        coverage_matrix <- coverage_result$matrix
+
+        # For isoacceptor and amino_acid goals, re-rank probes for optimal coverage
+        # This ensures rank 1, 2, 3... are complementary probes, not variations
+        if (values$wizard_goal %in% c("isoacceptor", "amino_acid")) {
+          probes_final <- rerank_probes_for_coverage(
+            probes = probes_final,
+            coverage_matrix = coverage_matrix,
+            target_ids = targets_df$id
+          )
+
+          # Rebuild coverage matrix with new probe order
+          coverage_result <- build_coverage_matrix(
+            probes = probes_final,
+            targets_df = targets_df,
+            max_mismatches = 3
+          )
+          coverage_matrix <- coverage_result$matrix
+          probes_final <- coverage_result$probes
+        }
+
+        # Store final probes
+        values$wizard_probes <- probes_final
+
+        # Store coverage data for UI
+        values$coverage_data <- list(
+          matrix = coverage_matrix,
+          mismatch_matrix = coverage_result$mismatch_matrix,
+          targets_covered_by = coverage_result$targets_covered_by,
+          n_targets = coverage_result$n_targets,
+          target_ids = targets_df$id
+        )
+
+        # Estimate probes needed for various coverage levels
+        values$coverage_estimate <- estimate_probes_needed(
+          coverage_matrix = coverage_matrix,
+          target_ids = targets_df$id
+        )
+      } else {
+        values$wizard_probes <- result$probes
+        values$coverage_data <- NULL
+        values$coverage_estimate <- NULL
+      }
+
       removeNotification("designing")
 
     }, error = function(e) {

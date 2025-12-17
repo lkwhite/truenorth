@@ -237,6 +237,60 @@ wizardStep3Server <- function(id, values) {
           )
         },
 
+        # Coverage estimate card
+        tags$div(
+          class = "card mt-4 border-primary",
+          tags$div(
+            class = "card-header bg-primary text-white",
+            icon("vials"), " Coverage Estimate"
+          ),
+          tags$div(
+            class = "card-body",
+            {
+              conservation <- feas$conservation$mean_identity %||% 0
+              n_targets <- feas$n_targets
+
+              # Estimate probes needed based on conservation
+              if (n_targets == 1) {
+                estimate_text <- "1 probe"
+                estimate_detail <- "Single target - one probe will cover it"
+                estimate_class <- "text-success"
+              } else if (conservation >= 95) {
+                estimate_text <- "1 probe"
+                estimate_detail <- sprintf("High conservation (%.0f%%) - one probe should cover all %d targets", conservation, n_targets)
+                estimate_class <- "text-success"
+              } else if (conservation >= 85) {
+                estimate_text <- "1-2 probes"
+                estimate_detail <- sprintf("Good conservation (%.0f%%) - may need 1-2 probes for full coverage", conservation)
+                estimate_class <- "text-info"
+              } else if (conservation >= 70) {
+                estimate_text <- "2-3 probes"
+                estimate_detail <- sprintf("Moderate conservation (%.0f%%) - expect to need 2-3 probes", conservation)
+                estimate_class <- "text-warning"
+              } else {
+                estimate_text <- "3+ probes"
+                estimate_detail <- sprintf("Low conservation (%.0f%%) - multiple probes likely needed", conservation)
+                estimate_class <- "text-danger"
+              }
+
+              tagList(
+                tags$div(
+                  class = "text-center mb-3",
+                  tags$span(class = paste("fs-4 fw-bold", estimate_class), estimate_text),
+                  tags$span(class = "text-muted", " estimated for full coverage")
+                ),
+                tags$p(class = "text-muted small mb-0", estimate_detail),
+                tags$hr(),
+                tags$p(class = "small mb-0",
+                       icon("info-circle"), " ",
+                       "Exact coverage will be calculated after probe design. ",
+                       "In the next step, you can select which probes to include and see actual target coverage."
+                )
+              )
+            }
+          )
+        ),
+
         # Design parameters
         tags$div(
           class = "card mt-4",

@@ -1,5 +1,5 @@
 # wizard_step4.R
-# Step 4: Design Results - probe table and export
+# Step 4: Design Results - probe table with coverage selection and export
 
 wizardStep4UI <- function(id) {
   ns <- NS(id)
@@ -12,7 +12,7 @@ wizardStep4UI <- function(id) {
       class = "text-center mb-4",
       tags$h3("Designed Probes"),
       tags$p(class = "text-muted",
-             "Review your probes and export for synthesis")
+             "Select probes to build your probe set and track target coverage")
     ),
 
     uiOutput(ns("results_content"))
@@ -81,7 +81,7 @@ wizardStep4Server <- function(id, values) {
       avg_gc <- mean(probes$gc_content, na.rm = TRUE)
 
       tagList(
-        # Summary cards
+        # Summary cards row
         fluidRow(
           column(
             width = 3,
@@ -121,15 +121,28 @@ wizardStep4Server <- function(id, values) {
             tags$div(
               class = "card text-center",
               tags$div(
-                class = "card-body",
+                class = "card-body py-2",
+                tags$small(class = "text-muted d-block mb-1", "Export selected"),
                 downloadButton(ns("download_probes"), "Export CSV",
-                               class = "btn-primary")
+                               class = "btn-primary btn-sm")
               )
             )
           )
         ),
 
-        tags$hr(),
+        # Coverage tracker card
+        tags$div(
+          class = "card mt-3 mb-3 border-primary",
+          tags$div(
+            class = "card-header bg-primary text-white d-flex justify-content-between align-items-center",
+            tags$span(icon("vials"), " Your Probe Set"),
+            tags$span(class = "badge bg-light text-primary", uiOutput(ns("coverage_badge"), inline = TRUE))
+          ),
+          tags$div(
+            class = "card-body",
+            uiOutput(ns("coverage_tracker"))
+          )
+        ),
 
         # Probe table
         tags$div(
@@ -164,19 +177,27 @@ wizardStep4Server <- function(id, values) {
       )
     })
 
-    # Probe table
+    # Probe table with multi-select (click to select for probe set AND view details)
     output$probe_table <- DT::renderDataTable({
       req(values$wizard_probes)
       probes <- values$wizard_probes
+      coverage_data <- values$coverage_data
 
-      # Format for display using actual column names
+      # Format coverage columns
+      if (!is.null(coverage_data) && "n_targets_hit" %in% names(probes)) {
+        n_targets <- coverage_data$n_targets
+        covers_col <- sprintf("%d/%d (%.0f%%)", probes$n_targets_hit, n_targets, probes$coverage_pct)
+      } else {
+        covers_col <- rep("-", nrow(probes))
+      }
+
+      # Format for display
       display_df <- data.frame(
         Rank = probes$rank,
         Sequence = probes$probe_sequence,
         Region = probes$trna_region,
-        Position = paste0(probes$start, "-", probes$end),
+        Covers = covers_col,
         Tm = sprintf("%.1f", probes$tm_nn),
-        GC = sprintf("%.0f%%", probes$gc_content),
         Quality = probes$quality,
         stringsAsFactors = FALSE
       )
@@ -203,12 +224,12 @@ wizardStep4Server <- function(id, values) {
 
       DT::datatable(
         display_df,
-        selection = "single",
+        selection = list(mode = "multiple", selected = which(probes$rank %in% values$selected_probes)),
         options = list(
           pageLength = 10,
           dom = "tip",
           columnDefs = list(
-            list(className = "dt-center", targets = c(3, 4, 5, 6))
+            list(className = "dt-center", targets = c(0, 3, 4, 5))
           )
         ),
         rownames = FALSE,
@@ -216,17 +237,192 @@ wizardStep4Server <- function(id, values) {
       )
     })
 
-    # Probe detail view
-    output$probe_detail <- renderUI({
+    # Sync table selection with values$selected_probes
+    observeEvent(input$probe_table_rows_selected, {
       req(values$wizard_probes)
-      selected <- input$probe_table_rows_selected
+      selected_rows <- input$probe_table_rows_selected
+      if (is.null(selected_rows)) {
+        values$selected_probes <- integer()
+      } else {
+        values$selected_probes <- values$wizard_probes$rank[selected_rows]
+      }
+    }, ignoreNULL = FALSE)
 
-      if (is.null(selected) || length(selected) == 0) {
-        return(tags$p(class = "text-muted text-center",
-                      "Click on a probe in the table above to see details"))
+    # Coverage badge (shows in card header)
+    output$coverage_badge <- renderUI({
+      coverage_data <- values$coverage_data
+      selected <- values$selected_probes %||% integer()
+
+      if (is.null(coverage_data) || length(selected) == 0) {
+        return(tags$span("0 probes"))
       }
 
-      probe <- values$wizard_probes[selected, ]
+      coverage <- get_cumulative_coverage(selected, coverage_data$matrix, coverage_data$target_ids)
+      tags$span(sprintf("%d probe%s", length(selected), if (length(selected) == 1) "" else "s"))
+    })
+
+    # Coverage tracker content
+    output$coverage_tracker <- renderUI({
+      coverage_data <- values$coverage_data
+      selected <- values$selected_probes %||% integer()
+
+      if (is.null(coverage_data)) {
+        return(tags$p(class = "text-muted mb-0", "Coverage data not available"))
+      }
+
+      n_targets <- coverage_data$n_targets
+      target_ids <- coverage_data$target_ids
+
+      if (length(selected) == 0) {
+        # No probes selected - show recommendation
+        estimate <- values$coverage_estimate
+        if (!is.null(estimate) && nrow(estimate) > 0) {
+          full_coverage_row <- estimate[estimate$coverage_pct >= 99.9, ]
+          if (nrow(full_coverage_row) > 0) {
+            n_for_full <- min(full_coverage_row$n_probes)
+            rec_ranks <- full_coverage_row$probe_ranks[full_coverage_row$n_probes == n_for_full][[1]]
+            return(tagList(
+              tags$p(class = "text-muted mb-2",
+                     icon("lightbulb"), " Select probes below to build your probe set"),
+              tags$div(
+                class = "alert alert-info py-2 mb-0",
+                tags$strong("Recommendation: "),
+                sprintf("Select %d probe%s for full coverage (ranks: %s)",
+                        n_for_full,
+                        if (n_for_full == 1) "" else "s",
+                        paste(rec_ranks, collapse = ", ")),
+                tags$br(),
+                actionLink(ns("select_recommended"), "Select recommended probes",
+                           class = "small")
+              )
+            ))
+          }
+        }
+        return(tags$p(class = "text-muted mb-0",
+                      icon("lightbulb"), " Select probes below to build your probe set"))
+      }
+
+      # Get cumulative coverage for selected probes
+      coverage <- get_cumulative_coverage(selected, coverage_data$matrix, target_ids)
+      pct <- coverage$coverage_pct
+
+      # Progress bar color based on coverage
+      bar_class <- if (pct >= 100) "bg-success" else if (pct >= 80) "bg-info" else if (pct >= 50) "bg-warning" else "bg-danger"
+
+      tagList(
+        # Coverage progress bar
+        tags$div(
+          class = "mb-3",
+          tags$div(
+            class = "d-flex justify-content-between mb-1",
+            tags$span("Target Coverage"),
+            tags$strong(sprintf("%d/%d (%.0f%%)", coverage$n_covered, n_targets, pct))
+          ),
+          tags$div(
+            class = "progress",
+            style = "height: 20px;",
+            tags$div(
+              class = paste("progress-bar", bar_class),
+              role = "progressbar",
+              style = sprintf("width: %.0f%%;", pct),
+              `aria-valuenow` = round(pct),
+              `aria-valuemin` = 0,
+              `aria-valuemax` = 100
+            )
+          )
+        ),
+
+        # Covered/uncovered lists
+        fluidRow(
+          column(
+            width = 6,
+            tags$div(
+              class = "small",
+              tags$strong(class = "text-success", icon("check-circle"), " Covered: "),
+              if (coverage$n_covered > 0) {
+                tags$span(
+                  title = paste(format_trna_id(coverage$covered_ids), collapse = ", "),
+                  if (coverage$n_covered <= 5) {
+                    paste(format_trna_id(coverage$covered_ids), collapse = ", ")
+                  } else {
+                    paste0(paste(format_trna_id(head(coverage$covered_ids, 4)), collapse = ", "),
+                           sprintf(" +%d more", coverage$n_covered - 4))
+                  }
+                )
+              } else {
+                tags$span(class = "text-muted", "None")
+              }
+            )
+          ),
+          column(
+            width = 6,
+            tags$div(
+              class = "small",
+              if (coverage$n_uncovered > 0) {
+                tagList(
+                  tags$strong(class = "text-danger", icon("times-circle"), " Not covered: "),
+                  tags$span(
+                    title = paste(format_trna_id(coverage$uncovered_ids), collapse = ", "),
+                    if (coverage$n_uncovered <= 5) {
+                      paste(format_trna_id(coverage$uncovered_ids), collapse = ", ")
+                    } else {
+                      paste0(paste(format_trna_id(head(coverage$uncovered_ids, 4)), collapse = ", "),
+                             sprintf(" +%d more", coverage$n_uncovered - 4))
+                    }
+                  )
+                )
+              } else {
+                tags$span(class = "text-success", icon("check-circle"), " All targets covered!")
+              }
+            )
+          )
+        ),
+
+        # Clear selection link
+        if (length(selected) > 0) {
+          tags$div(
+            class = "mt-2 text-end",
+            actionLink(ns("clear_selection"), "Clear selection", class = "small text-muted")
+          )
+        }
+      )
+    })
+
+    # Handle "Select recommended probes" link
+    observeEvent(input$select_recommended, {
+      estimate <- values$coverage_estimate
+      if (!is.null(estimate) && nrow(estimate) > 0) {
+        full_coverage_row <- estimate[estimate$coverage_pct >= 99.9, ]
+        if (nrow(full_coverage_row) > 0) {
+          n_for_full <- min(full_coverage_row$n_probes)
+          rec_ranks <- full_coverage_row$probe_ranks[full_coverage_row$n_probes == n_for_full][[1]]
+          values$selected_probes <- rec_ranks
+        }
+      }
+    })
+
+    # Handle clear selection link
+    observeEvent(input$clear_selection, {
+      values$selected_probes <- integer()
+    })
+
+    # Probe detail view - shows details for last clicked probe
+    output$probe_detail <- renderUI({
+      req(values$wizard_probes)
+
+      # Use last clicked row for details (works with multi-select)
+      last_clicked <- input$probe_table_row_last_clicked
+      selected <- input$probe_table_rows_selected
+
+      if (is.null(last_clicked) && (is.null(selected) || length(selected) == 0)) {
+        return(tags$p(class = "text-muted text-center",
+                      "Click on a probe to select it and see details. ",
+                      "Ctrl+click or Shift+click to select multiple probes."))
+      }
+
+      # Show details for last clicked, or first selected if no click tracked
+      detail_row <- if (!is.null(last_clicked)) last_clicked else selected[1]
+      probe <- values$wizard_probes[detail_row, ]
 
       # Check modification penalty level
       mod_penalty <- if ("modification_penalty" %in% names(probe)) {
@@ -496,7 +692,7 @@ wizardStep4Server <- function(id, values) {
       )
     })
 
-    # Download handler
+    # Download handler - exports selected probes (or all if none selected)
     output$download_probes <- downloadHandler(
       filename = function() {
         goal <- values$wizard_goal %||% "probes"
@@ -510,6 +706,13 @@ wizardStep4Server <- function(id, values) {
       },
       content = function(file) {
         probes <- values$wizard_probes
+        selected <- values$selected_probes %||% integer()
+        coverage_data <- values$coverage_data
+
+        # Filter to selected probes if any are selected
+        if (length(selected) > 0) {
+          probes <- probes[probes$rank %in% selected, ]
+        }
 
         # Format for export with actual column names
         export_df <- data.frame(
@@ -530,7 +733,32 @@ wizardStep4Server <- function(id, values) {
           stringsAsFactors = FALSE
         )
 
-        write.csv(export_df, file, row.names = FALSE)
+        # Add coverage columns if available
+        if (!is.null(coverage_data) && "n_targets_hit" %in% names(probes)) {
+          export_df$targets_covered_count <- probes$n_targets_hit
+          export_df$coverage_percent <- round(probes$coverage_pct, 1)
+          export_df$targets_covered <- probes$targets_covered
+        }
+
+        # Write with coverage summary header
+        con <- file(file, "w")
+        on.exit(close(con))
+
+        # Write summary header as comments
+        if (length(selected) > 0 && !is.null(coverage_data)) {
+          coverage <- get_cumulative_coverage(selected, coverage_data$matrix, coverage_data$target_ids)
+          writeLines(sprintf("# TRUENORTH Probe Export - %s", Sys.Date()), con)
+          writeLines(sprintf("# Selected probes: %d", length(selected)), con)
+          writeLines(sprintf("# Target coverage: %d/%d (%.0f%%)",
+                             coverage$n_covered, coverage_data$n_targets, coverage$coverage_pct), con)
+          writeLines(sprintf("# Covered targets: %s", paste(coverage$covered_ids, collapse = ", ")), con)
+          if (coverage$n_uncovered > 0) {
+            writeLines(sprintf("# Uncovered targets: %s", paste(coverage$uncovered_ids, collapse = ", ")), con)
+          }
+          writeLines("#", con)
+        }
+
+        write.csv(export_df, con, row.names = FALSE)
       }
     )
   })

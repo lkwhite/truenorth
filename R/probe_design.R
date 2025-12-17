@@ -646,3 +646,354 @@ design_probes_selective <- function(selection,
     selection = selection
   )
 }
+
+# =============================================================================
+# Coverage Analysis Functions
+# =============================================================================
+
+#' Calculate which targets a probe covers
+#'
+#' Checks binding of a probe sequence against multiple target sequences.
+#' A probe "covers" a target if the number of mismatches is <= max_mismatches.
+#'
+#' @param probe_sequence The probe sequence (5'->3', what you order)
+#' @param probe_start Start position of probe binding site
+#' @param probe_end End position of probe binding site
+#' @param targets_df Data frame with id and sequence columns
+#' @param max_mismatches Maximum mismatches to consider "covered" (default 3)
+#' @return Data frame with target_id, binds (logical), mismatches (count)
+#' @export
+calculate_probe_coverage <- function(probe_sequence, probe_start, probe_end,
+                                     targets_df, max_mismatches = 3) {
+  # Reverse the probe to get 3'->5' for alignment
+  probe_reversed <- paste(rev(strsplit(probe_sequence, "")[[1]]), collapse = "")
+  probe_chars <- strsplit(probe_reversed, "")[[1]]
+  probe_len <- length(probe_chars)
+
+  results <- lapply(seq_len(nrow(targets_df)), function(i) {
+    target_id <- targets_df$id[i]
+    target_seq <- targets_df$sequence[i]
+    target_len <- nchar(target_seq)
+
+    # Extract binding region from target
+    # Handle case where probe extends beyond target
+    actual_start <- max(1, probe_start)
+    actual_end <- min(target_len, probe_end)
+
+    if (actual_end < actual_start || (actual_end - actual_start + 1) < probe_len * 0.5) {
+      # Target too short or binding region invalid
+      return(data.frame(
+        target_id = target_id,
+        binds = FALSE,
+        mismatches = NA_integer_,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    binding_region <- substr(target_seq, actual_start, actual_end)
+    region_chars <- strsplit(binding_region, "")[[1]]
+
+    # Count mismatches (Watson-Crick complement check)
+    mismatches <- 0
+    for (j in seq_along(region_chars)) {
+      if (j > probe_len) break
+
+      target_base <- toupper(region_chars[j])
+      probe_base <- toupper(probe_chars[j])
+
+      # Check Watson-Crick pairing (probe binds to complement)
+      is_match <- (target_base == "A" && probe_base == "T") ||
+                  (target_base == "T" && probe_base == "A") ||
+                  (target_base == "U" && probe_base == "A") ||
+                  (target_base == "G" && probe_base == "C") ||
+                  (target_base == "C" && probe_base == "G")
+
+      if (!is_match) mismatches <- mismatches + 1
+    }
+
+    # Account for length differences as mismatches
+    len_diff <- abs(length(region_chars) - probe_len)
+    mismatches <- mismatches + len_diff
+
+    data.frame(
+      target_id = target_id,
+      binds = mismatches <= max_mismatches,
+      mismatches = mismatches,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  bind_rows(results)
+}
+
+#' Build coverage matrix for all probes against all targets
+#'
+#' Creates a matrix showing which probes cover which targets, plus summary stats.
+#'
+#' @param probes Data frame of probes (from design_probes_selective)
+#' @param targets_df Data frame of target tRNAs
+#' @param max_mismatches Maximum mismatches for coverage (default 3)
+#' @return List with:
+#'   - matrix: logical matrix [probe_rank, target_id]
+#'   - probes: updated probes df with coverage columns
+#'   - targets_covered_by: list mapping target_id -> probe_ranks that cover it
+#' @export
+build_coverage_matrix <- function(probes, targets_df, max_mismatches = 3) {
+  n_probes <- nrow(probes)
+  n_targets <- nrow(targets_df)
+  target_ids <- targets_df$id
+
+  # Initialize coverage matrix
+  cov_matrix <- matrix(FALSE, nrow = n_probes, ncol = n_targets)
+  rownames(cov_matrix) <- probes$rank
+
+colnames(cov_matrix) <- target_ids
+
+  # Also track mismatches for each probe-target pair
+  mismatch_matrix <- matrix(NA_integer_, nrow = n_probes, ncol = n_targets)
+  rownames(mismatch_matrix) <- probes$rank
+  colnames(mismatch_matrix) <- target_ids
+
+  # Calculate coverage for each probe
+  for (i in seq_len(n_probes)) {
+    coverage <- calculate_probe_coverage(
+      probe_sequence = probes$probe_sequence[i],
+      probe_start = probes$start[i],
+      probe_end = probes$end[i],
+      targets_df = targets_df,
+      max_mismatches = max_mismatches
+    )
+
+    for (j in seq_len(nrow(coverage))) {
+      target_idx <- which(target_ids == coverage$target_id[j])
+      if (length(target_idx) > 0) {
+        cov_matrix[i, target_idx] <- coverage$binds[j]
+        mismatch_matrix[i, target_idx] <- coverage$mismatches[j]
+      }
+    }
+  }
+
+  # Add coverage columns to probes dataframe
+  probes$n_targets_hit <- rowSums(cov_matrix)
+  probes$coverage_pct <- round(probes$n_targets_hit / n_targets * 100, 1)
+  probes$targets_covered <- sapply(seq_len(n_probes), function(i) {
+    covered_ids <- target_ids[cov_matrix[i, ]]
+    paste(covered_ids, collapse = ",")
+  })
+
+  # Calculate "new coverage" - targets not covered by higher-ranked probes
+  probes$new_coverage <- 0L
+  covered_so_far <- logical(n_targets)
+  for (i in seq_len(n_probes)) {
+    new_hits <- cov_matrix[i, ] & !covered_so_far
+    probes$new_coverage[i] <- sum(new_hits)
+    covered_so_far <- covered_so_far | cov_matrix[i, ]
+  }
+
+  # Build reverse mapping: which probes cover each target
+  targets_covered_by <- lapply(target_ids, function(tid) {
+    idx <- which(target_ids == tid)
+    probe_ranks <- which(cov_matrix[, idx])
+    as.integer(probe_ranks)
+  })
+  names(targets_covered_by) <- target_ids
+
+  list(
+    matrix = cov_matrix,
+    mismatch_matrix = mismatch_matrix,
+    probes = probes,
+    targets_covered_by = targets_covered_by,
+    n_targets = n_targets
+  )
+}
+
+#' Estimate minimum probes needed for various coverage levels
+#'
+#' Uses greedy set cover algorithm to find probe combinations that
+#' achieve different coverage levels.
+#'
+#' @param coverage_matrix Coverage matrix from build_coverage_matrix()
+#' @param target_ids Vector of target IDs
+#' @return Data frame with n_probes, coverage_count, coverage_pct, probe_ranks
+#' @export
+estimate_probes_needed <- function(coverage_matrix, target_ids) {
+  n_targets <- length(target_ids)
+  n_probes <- nrow(coverage_matrix)
+
+  if (n_probes == 0 || n_targets == 0) {
+    return(data.frame(
+      n_probes = integer(),
+      coverage_count = integer(),
+      coverage_pct = numeric(),
+      probe_ranks = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  # Greedy set cover
+  covered <- logical(n_targets)
+  selected_probes <- integer()
+  results <- list()
+
+  remaining_probes <- seq_len(n_probes)
+
+  while (sum(covered) < n_targets && length(remaining_probes) > 0) {
+    # Find probe that covers most uncovered targets
+    best_probe <- NULL
+    best_new_coverage <- 0
+
+    for (p in remaining_probes) {
+      new_coverage <- sum(coverage_matrix[p, ] & !covered)
+      if (new_coverage > best_new_coverage) {
+        best_new_coverage <- new_coverage
+        best_probe <- p
+      }
+    }
+
+    if (is.null(best_probe) || best_new_coverage == 0) break
+
+    # Add this probe
+    selected_probes <- c(selected_probes, best_probe)
+    covered <- covered | coverage_matrix[best_probe, ]
+    remaining_probes <- setdiff(remaining_probes, best_probe)
+
+    # Record this step
+    results[[length(results) + 1]] <- data.frame(
+      n_probes = length(selected_probes),
+      coverage_count = sum(covered),
+      coverage_pct = round(sum(covered) / n_targets * 100, 1),
+      probe_ranks = paste(selected_probes, collapse = ","),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (length(results) == 0) {
+    return(data.frame(
+      n_probes = 0L,
+      coverage_count = 0L,
+      coverage_pct = 0,
+      probe_ranks = "",
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  bind_rows(results)
+}
+
+#' Get cumulative coverage for a set of selected probes
+#'
+#' @param selected_ranks Vector of probe ranks that user has selected
+#' @param coverage_matrix Coverage matrix from build_coverage_matrix()
+#' @param target_ids Vector of target IDs
+#' @return List with coverage stats and lists of covered/uncovered targets
+#' @export
+get_cumulative_coverage <- function(selected_ranks, coverage_matrix, target_ids) {
+  n_targets <- length(target_ids)
+
+  if (length(selected_ranks) == 0) {
+    return(list(
+      n_selected = 0,
+      n_covered = 0,
+      n_uncovered = n_targets,
+      coverage_pct = 0,
+      covered_ids = character(),
+      uncovered_ids = target_ids
+    ))
+  }
+
+  # Combine coverage from all selected probes
+  combined_coverage <- logical(n_targets)
+  for (rank in selected_ranks) {
+    if (rank <= nrow(coverage_matrix)) {
+      combined_coverage <- combined_coverage | coverage_matrix[rank, ]
+    }
+  }
+
+  covered_ids <- target_ids[combined_coverage]
+  uncovered_ids <- target_ids[!combined_coverage]
+
+  list(
+    n_selected = length(selected_ranks),
+    n_covered = length(covered_ids),
+    n_uncovered = length(uncovered_ids),
+    coverage_pct = round(length(covered_ids) / n_targets * 100, 1),
+    covered_ids = covered_ids,
+    uncovered_ids = uncovered_ids
+  )
+}
+
+#' Re-rank probes for optimal coverage using greedy set cover
+#'
+#' Takes probes ranked by individual quality and re-ranks them so that
+#' each successive probe maximizes NEW target coverage. This produces
+#' a complementary probe set rather than variations of the same best probe.
+#'
+#' @param probes Data frame of probes with original quality-based ranking
+#' @param coverage_matrix Coverage matrix from build_coverage_matrix()
+#' @param target_ids Vector of target IDs
+#' @return Data frame of probes with new coverage-optimized ranking
+#' @export
+rerank_probes_for_coverage <- function(probes, coverage_matrix, target_ids) {
+  n_probes <- nrow(probes)
+  n_targets <- length(target_ids)
+
+  if (n_probes == 0 || n_targets == 0) {
+    return(probes)
+  }
+
+  # Track which targets are covered and which probes are assigned
+  covered <- logical(n_targets)
+  remaining_probes <- seq_len(n_probes)
+  new_order <- integer()
+
+  # Greedy set cover: pick probe covering most uncovered targets
+  # Use original quality score as tiebreaker
+  while (length(remaining_probes) > 0) {
+    best_probe <- NULL
+    best_new_coverage <- -1
+    best_quality <- -Inf
+
+    for (probe_idx in remaining_probes) {
+      # Count new targets this probe would cover
+      probe_covers <- coverage_matrix[probe_idx, ]
+      new_coverage <- sum(probe_covers & !covered)
+
+      # Get quality score for tiebreaker (higher is better)
+      quality <- probes$selectivity_score[probe_idx]
+
+      # Select if covers more new targets, or same but higher quality
+      if (new_coverage > best_new_coverage ||
+          (new_coverage == best_new_coverage && quality > best_quality)) {
+        best_probe <- probe_idx
+        best_new_coverage <- new_coverage
+        best_quality <- quality
+      }
+    }
+
+    if (is.null(best_probe)) break
+
+    # Add this probe to the new order
+    new_order <- c(new_order, best_probe)
+    covered <- covered | coverage_matrix[best_probe, ]
+    remaining_probes <- setdiff(remaining_probes, best_probe)
+
+    # If all targets covered, remaining probes get appended by quality
+    if (all(covered)) {
+      # Sort remaining by original quality score (descending)
+      if (length(remaining_probes) > 0) {
+        remaining_by_quality <- remaining_probes[order(
+          probes$selectivity_score[remaining_probes], decreasing = TRUE
+        )]
+        new_order <- c(new_order, remaining_by_quality)
+      }
+      break
+    }
+  }
+
+  # Reorder probes and assign new ranks
+  probes_reordered <- probes[new_order, ]
+  probes_reordered$original_rank <- probes_reordered$rank
+  probes_reordered$rank <- seq_len(nrow(probes_reordered))
+
+  probes_reordered
+}

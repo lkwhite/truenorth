@@ -23,7 +23,7 @@ OKABE_ITO <- list(
 
 # Semantic color assignments
 COLORS <- list(
-  anticodon = OKABE_ITO$sky_blue,      # Highlight anticodon
+  anticodon = "#000000",               # Black background for anticodon
   desired = OKABE_ITO$bluish_green,    # Desired targets (green-ish)
   avoid = OKABE_ITO$vermillion,        # Avoid targets (orange-red)
   header = OKABE_ITO$blue,             # Section headers
@@ -143,6 +143,24 @@ format_differences <- function(n_diff, diff_positions = NULL, seq_length = 75) {
 }
 
 # =============================================================================
+# Display Formatting Helpers
+# =============================================================================
+
+#' Format tRNA ID for display
+#'
+#' Removes "nuc-tRNA-" prefix, keeps "mito-" for mitochondrial
+#'
+#' @param id Character, the full tRNA ID
+#' @return Formatted display name
+format_trna_id <- function(id) {
+  # Remove nuc-tRNA- prefix
+  display <- gsub("^nuc-tRNA-", "", id)
+  # Change mito-tRNA- to just mito-
+  display <- gsub("^mito-tRNA-", "mito-", display)
+  display
+}
+
+# =============================================================================
 # Multiple Sequence Alignment View
 # =============================================================================
 
@@ -178,7 +196,82 @@ max_len <- max(nchar(sequences))
   which(variable)
 }
 
-#' Compute consensus sequence
+#' Perform multiple sequence alignment
+#'
+#' Uses msa package if available, otherwise falls back to simple padding
+#'
+#' @param sequences Character vector of sequences
+#' @return List with aligned_seqs (character vector) and consensus (character)
+perform_msa <- function(sequences) {
+  # Try to use msa package for proper alignment
+  if (requireNamespace("msa", quietly = TRUE)) {
+    tryCatch({
+      # Create DNAStringSet
+      dna_set <- Biostrings::DNAStringSet(sequences)
+
+      # Run ClustalOmega (fast and good for similar sequences)
+      aligned <- msa::msa(dna_set, method = "ClustalOmega", verbose = FALSE)
+
+      # Extract aligned sequences as characters
+      aligned_seqs <- as.character(aligned)
+
+      # Compute consensus from alignment
+      consensus <- compute_consensus_from_aligned(aligned_seqs)
+
+      return(list(
+        aligned_seqs = aligned_seqs,
+        consensus = consensus
+      ))
+    }, error = function(e) {
+      # Fall back to simple method on error
+      message("MSA failed, using simple alignment: ", e$message)
+    })
+  }
+
+  # Fallback: simple padding (no gaps)
+  max_len <- max(nchar(sequences))
+  padded <- sapply(sequences, function(s) {
+    if (nchar(s) < max_len) {
+      paste0(s, paste(rep("-", max_len - nchar(s)), collapse = ""))
+    } else {
+      s
+    }
+  })
+  consensus <- compute_consensus_from_aligned(padded)
+
+  list(
+    aligned_seqs = padded,
+    consensus = consensus
+  )
+}
+
+#' Compute consensus sequence from aligned sequences
+#'
+#' @param aligned_seqs Character vector of aligned sequences (same length)
+#' @return Character string with most common base at each position
+compute_consensus_from_aligned <- function(aligned_seqs) {
+  if (length(aligned_seqs) == 0) return("")
+
+  # All sequences should be same length after alignment
+  seq_len <- nchar(aligned_seqs[1])
+
+  # Get consensus (most common non-gap) at each position
+  char_mat <- do.call(rbind, strsplit(aligned_seqs, ""))
+
+  sapply(seq_len(ncol(char_mat)), function(i) {
+    bases <- char_mat[, i]
+    # Prefer non-gap characters
+    non_gap <- bases[bases != "-"]
+    if (length(non_gap) > 0) {
+      tab <- table(non_gap)
+      names(tab)[which.max(tab)]
+    } else {
+      "-"
+    }
+  }) |> paste(collapse = "")
+}
+
+#' Compute consensus sequence (legacy, for compatibility)
 #'
 #' @param sequences Character vector of sequences
 #' @return Character string with most common base at each position
@@ -186,7 +279,7 @@ compute_consensus <- function(sequences) {
   max_len <- max(nchar(sequences))
 
   # Pad sequences
- padded <- sapply(sequences, function(s) {
+  padded <- sapply(sequences, function(s) {
     if (nchar(s) < max_len) {
       paste0(s, paste(rep("-", max_len - nchar(s)), collapse = ""))
     } else {
@@ -194,13 +287,7 @@ compute_consensus <- function(sequences) {
     }
   })
 
-  # Get consensus (most common) at each position
-  char_mat <- do.call(rbind, strsplit(padded, ""))
-
-  sapply(seq_len(ncol(char_mat)), function(i) {
-    tab <- table(char_mat[, i])
-    names(tab)[which.max(tab)]
-  }) |> paste(collapse = "")
+  compute_consensus_from_aligned(padded)
 }
 
 #' Collapse identical sequences into groups
@@ -256,14 +343,28 @@ render_msa_view <- function(group_df, selected_ids, selection_types) {
   sequences <- unique_df$sequence
   n_unique <- length(sequences)
 
-  # Compute consensus
-  consensus <- compute_consensus(sequences)
+  # Perform multiple sequence alignment
+  msa_result <- perform_msa(sequences)
+  aligned_seqs <- msa_result$aligned_seqs
+  consensus <- msa_result$consensus
   consensus_chars <- strsplit(consensus, "")[[1]]
   max_len <- nchar(consensus)
 
-  # Get anticodon positions
-  ac_start <- unique_df$anticodon_start[1]
-  ac_end <- unique_df$anticodon_end[1]
+  # Create mapping from original sequence to aligned sequence
+  seq_to_aligned <- setNames(aligned_seqs, sequences)
+
+  # Sort sequences by similarity to consensus (fewest differences first)
+  diff_counts <- sapply(aligned_seqs, function(seq) {
+    sum(strsplit(seq, "")[[1]] != consensus_chars)
+  })
+  sort_order <- order(diff_counts)
+  unique_df <- unique_df[sort_order, ]
+  sequences <- unique_df$sequence
+
+  # Get anticodon positions for consensus - need to find in aligned consensus
+  # Use median anticodon position as reference
+  ac_start_consensus <- median(unique_df$anticodon_start, na.rm = TRUE)
+  ac_end_consensus <- ac_start_consensus + 2
 
   # Build the MSA display
   tags$div(
@@ -286,10 +387,10 @@ render_msa_view <- function(group_df, selected_ids, selection_types) {
       {
         seq_html <- sapply(seq_len(max_len), function(pos) {
           char <- consensus_chars[pos]
-          is_anticodon <- !is.na(ac_start) && pos >= ac_start && pos <= ac_end
+          is_anticodon <- !is.na(ac_start_consensus) && pos >= ac_start_consensus && pos <= ac_end_consensus
 
           style <- if (is_anticodon) {
-            paste0("background-color: ", COLORS$anticodon, "; font-weight: bold;")
+            paste0("background-color: ", COLORS$anticodon, "; color: white; font-weight: bold;")
           } else {
             "color: #333; font-weight: bold;"
           }
@@ -308,7 +409,9 @@ render_msa_view <- function(group_df, selected_ids, selection_types) {
     # Each unique sequence row
     lapply(seq_len(n_unique), function(i) {
       row <- unique_df[i, ]
-      seq_chars <- strsplit(row$sequence, "")[[1]]
+      # Use aligned sequence for display
+      aligned_seq <- seq_to_aligned[[row$sequence]]
+      seq_chars <- strsplit(aligned_seq, "")[[1]]
       seq_len_i <- length(seq_chars)
 
       # Get all member IDs for this sequence
@@ -370,20 +473,49 @@ render_msa_view <- function(group_df, selected_ids, selection_types) {
                 paste0(n_members, " identical genes")
               )
             } else {
-              tags$span(style = "color: #666;", member_ids[1])
+              tags$span(style = "color: #666;", format_trna_id(member_ids[1]))
             }
           ),
 
           # Sequence showing only differences from consensus
           {
+            # Find anticodon directly in aligned sequence
+            # This is more reliable than mapping from original position
+            anticodon <- row$anticodon
+            ac_start <- NA
+            ac_end <- NA
+
+            if (!is.na(anticodon) && nchar(anticodon) == 3) {
+              # Convert U to T for DNA sequence matching
+              anticodon_dna <- gsub("U", "T", toupper(anticodon))
+              aligned_str <- paste(seq_chars, collapse = "")
+
+              # Find anticodon in expected range (positions 30-50 in aligned sequence)
+              # Account for possible gaps by searching a wider range
+              matches <- gregexpr(anticodon_dna, aligned_str, fixed = TRUE)[[1]]
+
+              if (matches[1] != -1) {
+                # Filter to expected range (30-50) and take closest to 35
+                valid_matches <- matches[matches >= 25 & matches <= 55]
+                if (length(valid_matches) > 0) {
+                  best_match <- valid_matches[which.min(abs(valid_matches - 38))]
+                  ac_start <- best_match
+                  ac_end <- best_match + 2
+                }
+              }
+            }
+
             seq_html <- sapply(seq_len(max_len), function(pos) {
               char <- if (pos <= seq_len_i) seq_chars[pos] else "-"
               cons_char <- consensus_chars[pos]
               is_anticodon <- !is.na(ac_start) && pos >= ac_start && pos <= ac_end
-              is_diff <- (char != cons_char)
+              is_diff <- (char != cons_char) && (char != "-")
 
-              if (is_anticodon) {
-                style <- paste0("background-color: ", COLORS$anticodon, "; font-weight: bold;")
+              if (char == "-") {
+                # Gap character
+                '<span style="color: #ccc;">-</span>'
+              } else if (is_anticodon) {
+                style <- paste0("background-color: ", COLORS$anticodon, "; color: white; font-weight: bold;")
                 sprintf('<span style="%s">%s</span>', style, char)
               } else if (is_diff) {
                 color <- get_base_color(char)
@@ -425,7 +557,7 @@ render_msa_view <- function(group_df, selected_ids, selection_types) {
                   checked = if (mid %in% selected_ids) "checked" else NULL,
                   style = "margin-right: 6px;"
                 ),
-                tags$span(style = "font-family: monospace;", mid),
+                tags$span(style = "font-family: monospace;", format_trna_id(mid)),
                 if (!is.null(sel_type)) {
                   if (sel_type == "desired") {
                     tags$span(style = paste0("color: ", COLORS$desired, "; margin-left: 5px;"), "\u2713")
@@ -450,7 +582,7 @@ render_msa_view <- function(group_df, selected_ids, selection_types) {
       tags$span(style = "background-color: #F0E442; color: #333; padding: 1px 6px;", "G"),
       tags$span(style = "background-color: #0072B2; color: white; padding: 1px 6px;", "C"),
       tags$span(style = "margin-left: 10px;", "|"),
-      tags$span(style = paste0("background-color: ", COLORS$anticodon, "; padding: 1px 6px;"), "Anticodon")
+      tags$span(style = paste0("background-color: ", COLORS$anticodon, "; color: white; padding: 1px 6px;"), "Anticodon")
     )
   )
 }

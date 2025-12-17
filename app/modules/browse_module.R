@@ -62,7 +62,7 @@ browseUI <- function(id) {
           style = "margin-bottom: 15px;",
           tags$summary(
             style = "cursor: pointer; color: #0072B2;",
-            "What do these terms mean?"
+            "More about tRNA terminology"
           ),
           create_terminology_html()
         )

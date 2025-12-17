@@ -496,7 +496,6 @@ wizardStep4Server <- function(id, values) {
           "amino_acid" = values$wizard_selection$amino_acid,
           "isoacceptor" = values$wizard_selection$anticodon,
           "specific" = "selected",
-          "consensus" = "pantRNA",
           "probes"
         )
         paste0("truenorth_", target, "_", Sys.Date(), ".csv")

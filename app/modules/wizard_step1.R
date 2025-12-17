@@ -15,7 +15,7 @@ wizardStep1UI <- function(id) {
     fluidRow(
       # Specific isodecoder
       column(
-        width = 3,
+        width = 4,
         tags$div(
           id = ns("card_specific"),
           class = "card goal-card",
@@ -38,7 +38,7 @@ wizardStep1UI <- function(id) {
 
       # Isoacceptor family
       column(
-        width = 3,
+        width = 4,
         tags$div(
           id = ns("card_isoacceptor"),
           class = "card goal-card",
@@ -61,7 +61,7 @@ wizardStep1UI <- function(id) {
 
       # All for amino acid
       column(
-        width = 3,
+        width = 4,
         tags$div(
           id = ns("card_amino_acid"),
           class = "card goal-card",
@@ -78,29 +78,6 @@ wizardStep1UI <- function(id) {
                    "Target all tRNAs for an amino acid across anticodons"),
             tags$small(class = "text-muted",
                        "Best for: Total pool measurement (often needs multiple probes)")
-          )
-        )
-      ),
-
-      # Maximum coverage
-      column(
-        width = 3,
-        tags$div(
-          id = ns("card_consensus"),
-          class = "card goal-card",
-          onclick = sprintf("Shiny.setInputValue('%s', 'consensus', {priority: 'event'})",
-                            ns("goal_click")),
-          tags$div(
-            class = "card-body text-center",
-            tags$div(
-              style = "font-size: 2.5em; margin-bottom: 10px;",
-              icon("bullseye")
-            ),
-            tags$h5(class = "card-title", "Pan-tRNA / Loading Control"),
-            tags$p(class = "card-text text-muted",
-                   "Find probes targeting conserved regions across many tRNAs"),
-            tags$small(class = "text-muted",
-                       "Best for: Loading controls, total tRNA quantification")
           )
         )
       )
@@ -141,15 +118,13 @@ wizardStep1Server <- function(id, values) {
       goal_labels <- list(
         specific = "Specific Isodecoder(s)",
         isoacceptor = "Isoacceptor Family",
-        amino_acid = "Amino Acid Pool",
-        consensus = "Pan-tRNA / Loading Control"
+        amino_acid = "Amino Acid Pool"
       )
 
       goal_descriptions <- list(
         specific = "You'll select which tRNA genes to target. We'll analyze feasibility and design probes to hit your targets while avoiding others.",
         isoacceptor = "You'll select an anticodon family. We'll analyze if one probe can hit all members, or if you need multiple probes.",
-        amino_acid = "You'll select an amino acid. We'll determine how many probes are needed to cover all its tRNA isoacceptors.",
-        consensus = "We'll analyze all tRNAs to find the most conserved regions for pan-tRNA detection."
+        amino_acid = "You'll select an amino acid. We'll determine how many probes are needed to cover all its tRNA isoacceptors."
       )
 
       tags$div(

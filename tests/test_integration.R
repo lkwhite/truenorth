@@ -6,10 +6,10 @@
 
 # Set working directory to project root if needed
 if (!file.exists("R/sequence_utils.R")) {
-  stop("Please run this script from the compass project root directory")
+  stop("Please run this script from the truenorth project root directory")
 }
 
-cat("=== Compass Integration Test ===\n\n")
+cat("=== TRUENORTH Integration Test ===\n\n")
 
 # Load required packages
 suppressPackageStartupMessages({
@@ -96,7 +96,7 @@ cat("   Double RC:", reverse_complement(rc), "(should match input)\n\n")
 
 # Summary
 cat("=== All tests passed! ===\n")
-cat("\nCompass core modules are working correctly.\n")
+cat("\nTRUENORTH core modules are working correctly.\n")
 cat("Next steps:\n")
 cat("  - Generate full similarity data: Rscript -e 'source(\"R/similarity.R\"); source(\"R/sequence_utils.R\"); ecoli <- load_organism_data(\"ecoli\", \"data/fastas\"); sim <- compute_similarity_data(ecoli); save_similarity_data(sim, \"data\")'\n")
 cat("  - Run unit tests: Rscript -e 'testthat::test_dir(\"tests/testthat\")'\n")

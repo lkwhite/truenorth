@@ -1,5 +1,5 @@
 # ui.R
-# Compass Shiny app UI - Wizard-based probe design flow
+# TRUENORTH Shiny app UI - Wizard-based probe design flow
 
 ui <- page_fluid(
   theme = bs_theme(
@@ -127,9 +127,37 @@ ui <- page_fluid(
     style = "padding: 15px 20px; background-color: #0072B2; color: white;",
     tags$div(
       class = "d-flex justify-content-between align-items-center",
-      tags$div(
-        tags$h4("COMPASS", style = "margin: 0; font-weight: bold;"),
-        tags$small("tRNA Northern Probe Designer")
+      # Clickable logo + title to reset wizard
+      tags$a(
+        id = "logo_reset",
+        href = "#",
+        class = "text-decoration-none",
+        style = "display: flex; align-items: center; gap: 12px; color: white; cursor: pointer;",
+        onclick = "Shiny.setInputValue('logo_clicked', Math.random()); return false;",
+        # Compass SVG logo - black/white with red needle pointing north
+        HTML('
+          <svg width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <!-- Outer circle -->
+            <circle cx="50" cy="50" r="45" fill="none" stroke="white" stroke-width="3"/>
+            <!-- Inner circle -->
+            <circle cx="50" cy="50" r="35" fill="none" stroke="white" stroke-width="1.5"/>
+            <!-- Cardinal directions -->
+            <text x="50" y="18" text-anchor="middle" fill="white" font-size="10" font-weight="bold">N</text>
+            <text x="50" y="92" text-anchor="middle" fill="white" font-size="10" font-weight="bold">S</text>
+            <text x="8" y="54" text-anchor="middle" fill="white" font-size="10" font-weight="bold">W</text>
+            <text x="92" y="54" text-anchor="middle" fill="white" font-size="10" font-weight="bold">E</text>
+            <!-- Compass needle - red north, white south -->
+            <polygon points="50,22 45,50 50,45 55,50" fill="#D55E00"/>
+            <polygon points="50,78 45,50 50,55 55,50" fill="white"/>
+            <!-- Center dot -->
+            <circle cx="50" cy="50" r="4" fill="white"/>
+          </svg>
+        '),
+        tags$div(
+          tags$h4("TRUENORTH", style = "margin: 0; font-weight: bold;"),
+          tags$small("tRNA-Resolved Utility for Evaluating Northern Oligo Reference Targets via Hybridization",
+                     style = "opacity: 0.9;")
+        )
       ),
       tags$div(
         class = "d-flex align-items-center gap-2",

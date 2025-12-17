@@ -146,7 +146,7 @@ resultsServer <- function(id, values) {
     # -------------------------------------------------------------------------
     output$export_csv <- downloadHandler(
       filename = function() {
-        paste0("compass_probes_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+        paste0("truenorth_probes_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
       },
       content = function(file) {
         req(values$probes)

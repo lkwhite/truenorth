@@ -1,5 +1,5 @@
 # server.R
-# Compass Shiny app server logic - Wizard-based flow
+# TRUENORTH Shiny app server logic - Wizard-based flow
 
 server <- function(input, output, session) {
 
@@ -213,6 +213,17 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$wizard_reset, {
+    values$wizard_step <- 1
+    values$wizard_goal <- NULL
+    values$wizard_selection <- list(type = NULL, ids = character(), amino_acid = NULL, anticodon = NULL)
+    values$wizard_selection_obj <- NULL
+    values$wizard_feasibility <- NULL
+    values$wizard_probes <- NULL
+    values$design_params <- NULL
+  })
+
+  # Reset wizard when logo is clicked
+  observeEvent(input$logo_clicked, {
     values$wizard_step <- 1
     values$wizard_goal <- NULL
     values$wizard_selection <- list(type = NULL, ids = character(), amino_acid = NULL, anticodon = NULL)

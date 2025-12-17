@@ -1,5 +1,5 @@
 # sequence_utils.R
-# FASTA parsing and sequence manipulation for Compass
+# FASTA parsing and sequence manipulation for TRUENORTH
 
 library(Biostrings)
 library(dplyr)
@@ -116,7 +116,7 @@ load_organism_data <- function(organism, data_dir = NULL) {
     possible_paths <- c(
       DATA_DIR,
       file.path("..", DATA_DIR),
-      file.path(system.file(package = "compass"), DATA_DIR)
+      file.path(system.file(package = "truenorth"), DATA_DIR)
     )
     data_dir <- Find(dir.exists, possible_paths)
     if (is.null(data_dir)) {

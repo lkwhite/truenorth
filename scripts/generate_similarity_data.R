@@ -9,10 +9,10 @@
 
 # Set working directory to project root if needed
 if (!file.exists("R/sequence_utils.R")) {
-  stop("Please run this script from the compass project root directory")
+  stop("Please run this script from the truenorth project root directory")
 }
 
-cat("=== Generating Similarity Data for Compass ===\n\n")
+cat("=== Generating Similarity Data for TRUENORTH ===\n\n")
 
 # Load required packages
 suppressPackageStartupMessages({

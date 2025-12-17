@@ -1,6 +1,8 @@
-# Compass Project Tracker
+# TRUENORTH Project Tracker
 
-**Last Updated:** 2024-12-16
+**TRUENORTH:** tRNA-Resolved Utility for Evaluating Northern Oligo Reference Targets via Hybridization
+
+**Last Updated:** 2025-12-16
 
 ## Project Status: Functional MVP
 
@@ -22,6 +24,7 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 
 | Task | Date | Notes |
 |------|------|-------|
+| Rename to TRUENORTH | 2025-12-16 | Full rebrand with clickable compass logo (red needle), reset wizard on logo click |
 | Tm modification warning | 2024-12-16 | Added asterisk + footnote explaining Tm is for unmodified sequences |
 | Modification-aware ranking | 2024-12-16 | Probes penalized for D-loop, anticodon, TΨC overlap (not just anticodon) |
 | Hybridization diagrams | 2024-12-16 | Multi-target view with mismatch highlighting, Tm display |

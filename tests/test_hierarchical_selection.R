@@ -6,7 +6,7 @@
 #   Rscript tests/test_hierarchical_selection.R
 
 if (!file.exists("R/sequence_utils.R")) {
-  stop("Please run this script from the compass project root directory")
+  stop("Please run this script from the truenorth project root directory")
 }
 
 cat("=== Hierarchical Target Selection Demo ===\n\n")

@@ -1,8 +1,10 @@
-# Compass - Northern Probe Design Tool
+# TRUENORTH - tRNA Northern Probe Design Tool
+
+**TRUENORTH:** tRNA-Resolved Utility for Evaluating Northern Oligo Reference Targets via Hybridization
 
 ## Project Overview
 
-Compass is a standalone GUI application for molecular biologists to design northern blot probes, starting with the use case of tRNA probing.
+TRUENORTH is a standalone GUI application for molecular biologists to design northern blot probes, starting with the use case of tRNA probing.
 
 **Target Users:** Molecular biologists designing northern probes
 **Initial Scope:** tRNA probe design for human, yeast (*S. cerevisiae*), and *E. coli*
@@ -17,7 +19,7 @@ Compass is a standalone GUI application for molecular biologists to design north
 ## Project Structure
 
 ```
-compass/
+truenorth/
 ├── CLAUDE.md                    # This file - AI coding instructions
 ├── PROJECT_TRACKER.md           # Current tasks and progress
 ├── README.md                    # User-facing documentation

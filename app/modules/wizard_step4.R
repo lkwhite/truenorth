@@ -499,7 +499,7 @@ wizardStep4Server <- function(id, values) {
           "consensus" = "pantRNA",
           "probes"
         )
-        paste0("compass_", target, "_", Sys.Date(), ".csv")
+        paste0("truenorth_", target, "_", Sys.Date(), ".csv")
       },
       content = function(file) {
         probes <- values$wizard_probes

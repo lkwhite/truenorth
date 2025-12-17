@@ -1,5 +1,5 @@
 # app.R
-# Compass Shiny app entry point
+# TRUENORTH Shiny app entry point
 
 # Source global setup
 source("global.R")

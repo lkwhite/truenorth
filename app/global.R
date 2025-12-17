@@ -1,5 +1,5 @@
 # global.R
-# Load packages and source R modules for Compass Shiny app
+# Load packages and source R modules for TRUENORTH Shiny app
 
 # =============================================================================
 # Packages

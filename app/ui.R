@@ -131,12 +131,23 @@ ui <- page_fluid(
         tags$h4("COMPASS", style = "margin: 0; font-weight: bold;"),
         tags$small("tRNA Northern Probe Designer")
       ),
-      selectInput(
-        "organism",
-        label = NULL,
-        choices = ORGANISMS,
-        selected = "human",
-        width = "150px"
+      tags$div(
+        class = "d-flex align-items-center gap-2",
+        selectInput(
+          "organism",
+          label = NULL,
+          choices = ORGANISMS,
+          selected = "human",
+          width = "150px"
+        ),
+        selectInput(
+          "compartment",
+          label = NULL,
+          choices = c("Nuclear/Cytoplasmic" = "nuclear",
+                      "Mitochondrial" = "mitochondrial"),
+          selected = "nuclear",
+          width = "180px"
+        )
       )
     )
   ),

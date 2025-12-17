@@ -177,10 +177,12 @@ render_isoacceptor_ui <- function(ns, trna_data) {
       class = "col-md-3 col-sm-4 mb-3",
       tags$div(
         id = ns(card_id),
-        class = "card goal-card",
+        class = "card goal-card anticodon-card",
         style = "cursor: pointer;",
-        onclick = sprintf("Shiny.setInputValue('%s', '%s', {priority: 'event'})",
-                          ns("selected_anticodon"), row$anticodon),
+        onclick = sprintf(
+          "document.querySelectorAll('.anticodon-card').forEach(c => c.classList.remove('selected')); this.classList.add('selected'); Shiny.setInputValue('%s', '%s', {priority: 'event'})",
+          ns("selected_anticodon"), row$anticodon
+        ),
         tags$div(
           class = "card-body text-center py-3",
           tags$h5(class = "card-title mb-1", row$anticodon),
@@ -229,10 +231,12 @@ render_amino_acid_ui <- function(ns, trna_data) {
       class = "col-md-2 col-sm-3 col-4 mb-3",
       tags$div(
         id = ns(paste0("aa_card_", row$amino_acid)),
-        class = "card goal-card",
+        class = "card goal-card amino-acid-card",
         style = "cursor: pointer;",
-        onclick = sprintf("Shiny.setInputValue('%s', '%s', {priority: 'event'})",
-                          ns("selected_amino_acid"), row$amino_acid),
+        onclick = sprintf(
+          "document.querySelectorAll('.amino-acid-card').forEach(c => c.classList.remove('selected')); this.classList.add('selected'); Shiny.setInputValue('%s', '%s', {priority: 'event'})",
+          ns("selected_amino_acid"), row$amino_acid
+        ),
         tags$div(
           class = "card-body text-center py-2",
           tags$div(

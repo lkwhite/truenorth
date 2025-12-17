@@ -1202,6 +1202,417 @@ create_terminology_html <- function() {
 }
 
 # =============================================================================
+# Hybridization Diagram
+# =============================================================================
+
+#' Render hybridization diagram showing probe binding to target tRNA
+#'
+#' Displays the antiparallel binding of probe to target:
+#' - Full tRNA shown 5' → 3' (left to right) with anticodon highlighted
+#' - Probe shown 3' ← 5' (inverted, upside down) to demonstrate base pairing
+#'
+#' @param target_sequence Character, the full tRNA sequence
+#' @param probe_sequence Character, the probe sequence (5' → 3')
+#' @param start Integer, start position of probe binding on tRNA (1-indexed)
+#' @param end Integer, end position of probe binding on tRNA (1-indexed)
+#' @param anticodon_start Integer, start position of anticodon (optional)
+#' @param anticodon_end Integer, end position of anticodon (optional)
+#' @param target_label Character, label for the target (e.g., tRNA ID or "Reference")
+#' @param n_targets Integer, total number of tRNAs this probe targets (optional)
+#' @param conservation Numeric, % conservation across targets (optional)
+#' @return HTML element with hybridization diagram
+#' @export
+render_hybridization_diagram <- function(target_sequence, probe_sequence,
+                                          start, end,
+                                          anticodon_start = NULL,
+                                          anticodon_end = NULL,
+                                          target_label = NULL,
+                                          n_targets = NULL,
+                                          conservation = NULL) {
+  # Validate inputs
+  if (is.null(target_sequence) || is.na(target_sequence) ||
+      is.null(probe_sequence) || is.na(probe_sequence)) {
+    return(tags$div(
+      class = "text-muted",
+      "Unable to display hybridization diagram"
+    ))
+  }
+
+  target_len <- nchar(target_sequence)
+  target_chars <- strsplit(target_sequence, "")[[1]]
+
+  # The probe binds antiparallel, so reverse it for display
+  # Probe is stored 5'→3', we show it 3'→5' (reversed) to show pairing
+  probe_reversed <- paste(rev(strsplit(probe_sequence, "")[[1]]), collapse = "")
+  probe_chars <- strsplit(probe_reversed, "")[[1]]
+  probe_len <- nchar(probe_sequence)
+
+  # Build tRNA line with anticodon highlighting (using HTML spans)
+  trna_html_parts <- list()
+  for (i in seq_along(target_chars)) {
+    char <- target_chars[i]
+    if (!is.null(anticodon_start) && !is.null(anticodon_end) &&
+        !is.na(anticodon_start) && !is.na(anticodon_end) &&
+        i >= anticodon_start && i <= anticodon_end) {
+      # Anticodon: black background, white text
+      trna_html_parts[[i]] <- sprintf(
+        '<span style="background-color: #000; color: #fff;">%s</span>',
+        char
+      )
+    } else {
+      trna_html_parts[[i]] <- char
+    }
+  }
+  trna_sequence_html <- paste(unlist(trna_html_parts), collapse = "")
+
+  # Build base pairing line (| for Watson-Crick pairs)
+  pairing_chars <- character(target_len)
+  for (i in seq_len(target_len)) {
+    if (i >= start && i <= end) {
+      probe_idx <- i - start + 1
+      if (probe_idx >= 1 && probe_idx <= length(probe_chars)) {
+        target_base <- toupper(target_chars[i])
+        probe_base <- toupper(probe_chars[probe_idx])
+        if ((target_base == "A" && probe_base == "T") ||
+            (target_base == "T" && probe_base == "A") ||
+            (target_base == "G" && probe_base == "C") ||
+            (target_base == "C" && probe_base == "G")) {
+          pairing_chars[i] <- "|"
+        } else {
+          pairing_chars[i] <- " "
+        }
+      } else {
+        pairing_chars[i] <- " "
+      }
+    } else {
+      pairing_chars[i] <- " "
+    }
+  }
+  pairing_line <- paste(pairing_chars, collapse = "")
+
+  # Build probe line with padding to align with tRNA
+  left_padding <- paste(rep(" ", start - 1), collapse = "")
+  right_padding_len <- target_len - end
+  right_padding <- if (right_padding_len > 0) paste(rep(" ", right_padding_len), collapse = "") else ""
+  probe_line <- paste0(left_padding, probe_reversed, right_padding)
+
+  # Use target_label for the row label, default to "tRNA"
+  row_label <- if (!is.null(target_label) && nchar(target_label) > 0) {
+    # Truncate long labels for display
+    if (nchar(target_label) > 18) {
+      paste0(substr(target_label, 1, 15), "...")
+    } else {
+      target_label
+    }
+  } else {
+    "tRNA"
+  }
+
+  # Fixed label width for alignment - needs to fit longest label + colon
+  label_width <- max(8, nchar(row_label) + 2)
+
+  # Build the complete pre content as a single HTML string for clean rendering
+  trna_label <- sprintf('<span style="color: #0072B2;">%-*s5\u2032 </span>',
+                        label_width, paste0(row_label, ":"))
+  trna_end <- '<span style="color: #0072B2;"> 3\u2032</span>'
+
+  pairing_label <- sprintf('<span style="color: #009E73;">%-*s   %s</span>',
+                           label_width, "", pairing_line)
+
+  probe_label <- sprintf('<span style="color: #D55E00;">%-*s3\u2032 %s 5\u2032</span>',
+                          label_width, "Probe:", probe_line)
+
+  pre_content <- paste0(
+    trna_label, trna_sequence_html, trna_end, "\n",
+    pairing_label, "\n",
+    probe_label
+  )
+
+  # Build subtitle with target context
+  subtitle_parts <- paste0("Binding positions ", start, "-", end)
+  if (!is.null(n_targets) && n_targets > 1) {
+    subtitle_parts <- paste0(subtitle_parts, " | Targets ", n_targets, " tRNAs")
+    if (!is.null(conservation)) {
+      subtitle_parts <- paste0(subtitle_parts, " (", round(conservation, 0), "% conserved)")
+    }
+  }
+
+  # Create the diagram
+  tags$div(
+    class = "hybridization-diagram",
+    style = "background-color: #f8f9fa; padding: 15px; border-radius: 6px; overflow-x: auto;",
+
+    # Title
+    tags$div(
+      style = "font-family: sans-serif; font-size: 0.85em; color: #666; margin-bottom: 10px;",
+      subtitle_parts
+    ),
+
+    # Sequences using pre for alignment
+    tags$pre(
+      style = "font-family: 'Courier New', Consolas, monospace; font-size: 0.95em; line-height: 1.6; margin: 0; background: transparent;",
+      HTML(pre_content)
+    ),
+
+    # Legend
+    tags$div(
+      style = "margin-top: 12px; font-family: sans-serif; font-size: 0.8em; color: #888; display: flex; gap: 15px; flex-wrap: wrap;",
+      tags$span(
+        tags$span(style = "color: #0072B2;", "\u25CF"),
+        " tRNA (5\u2032\u21923\u2032)"
+      ),
+      tags$span(
+        tags$span(style = "color: #D55E00;", "\u25CF"),
+        " Probe (3\u2032\u21925\u2032)"
+      ),
+      tags$span(
+        tags$span(style = "background-color: #000; color: #fff; padding: 0 3px;", "NNN"),
+        " Anticodon"
+      )
+    )
+  )
+}
+
+#' Render multi-target hybridization diagram
+#'
+#' Shows probe binding to multiple tRNA targets, highlighting mismatches.
+#' Groups identical sequences together and shows unique sequences with
+#' mismatch positions highlighted.
+#'
+#' @param targets_df Data frame with columns: id, sequence, anticodon_start, anticodon_end
+#' @param probe_sequence Character, the probe sequence (5' → 3')
+#' @param start Integer, start position of probe binding on tRNA (1-indexed)
+#' @param end Integer, end position of probe binding on tRNA (1-indexed)
+#' @param reference_id Character, ID of the reference tRNA (shown first)
+#' @param max_show Integer, maximum number of unique sequences to display (default 5)
+#' @param show_tm Logical, whether to show estimated Tm for each target (default TRUE)
+#' @return HTML element with multi-target hybridization diagram
+#' @export
+render_multi_target_hybridization <- function(targets_df, probe_sequence,
+                                               start, end,
+                                               reference_id = NULL,
+                                               max_show = 5,
+                                               show_tm = TRUE) {
+  if (is.null(targets_df) || nrow(targets_df) == 0 ||
+      is.null(probe_sequence) || is.na(probe_sequence)) {
+    return(tags$div(class = "text-muted", "No targets to display"))
+  }
+
+  # Helper function to estimate Tm with mismatches
+  # Uses a simplified model: base Tm minus ~5°C per mismatch
+  estimate_tm_with_mismatches <- function(probe_seq, n_mismatches) {
+    # Calculate base Tm for perfect match using basic formula
+    probe_seq <- toupper(probe_seq)
+    len <- nchar(probe_seq)
+    bases <- strsplit(probe_seq, "")[[1]]
+    nG <- sum(bases == "G")
+    nC <- sum(bases == "C")
+    gc_content <- (nG + nC) / len
+
+    # Basic Tm formula for longer oligos
+    base_tm <- 64.9 + 41 * (gc_content - 0.164)
+
+    # Reduce by ~5°C per mismatch (empirical approximation)
+    adjusted_tm <- base_tm - (n_mismatches * 5)
+
+    round(adjusted_tm, 1)
+  }
+
+  # Calculate perfect match Tm for reference
+  perfect_tm <- estimate_tm_with_mismatches(probe_sequence, 0)
+
+  # The probe binds antiparallel - reverse for display (3'→5')
+  probe_reversed <- paste(rev(strsplit(probe_sequence, "")[[1]]), collapse = "")
+  probe_chars <- strsplit(probe_reversed, "")[[1]]
+  probe_len <- length(probe_chars)
+
+  # Extract binding regions from each target
+  targets_df$binding_region <- sapply(targets_df$sequence, function(seq) {
+    substr(seq, start, end)
+  })
+
+  # Group by unique binding region
+  unique_regions <- unique(targets_df$binding_region)
+  n_unique <- length(unique_regions)
+  n_total <- nrow(targets_df)
+
+  # Sort to put reference first
+  if (!is.null(reference_id) && reference_id %in% targets_df$id) {
+    ref_region <- targets_df$binding_region[targets_df$id == reference_id][1]
+    unique_regions <- c(ref_region, setdiff(unique_regions, ref_region))
+  }
+
+  # Build diagram elements for each unique sequence
+  diagram_elements <- list()
+
+  for (idx in seq_along(unique_regions)) {
+    if (idx > max_show) break
+
+    region <- unique_regions[idx]
+    region_chars <- strsplit(region, "")[[1]]
+
+    # Find all targets with this region
+    matching_targets <- targets_df[targets_df$binding_region == region, ]
+    n_matching <- nrow(matching_targets)
+    representative <- matching_targets[1, ]
+
+    # Count mismatches with probe
+    n_mismatches <- 0
+    match_chars <- character(length(region_chars))
+    region_html_parts <- list()
+
+    for (i in seq_along(region_chars)) {
+      target_base <- toupper(region_chars[i])
+      probe_base <- if (i <= length(probe_chars)) toupper(probe_chars[i]) else "?"
+
+      # Check Watson-Crick complementarity
+      is_match <- (target_base == "A" && probe_base == "T") ||
+                  (target_base == "T" && probe_base == "A") ||
+                  (target_base == "G" && probe_base == "C") ||
+                  (target_base == "C" && probe_base == "G")
+
+      if (is_match) {
+        match_chars[i] <- "|"
+        region_html_parts[[i]] <- region_chars[i]
+      } else {
+        match_chars[i] <- " "
+        n_mismatches <- n_mismatches + 1
+        # Highlight mismatch with red background
+        region_html_parts[[i]] <- sprintf(
+          '<span style="background-color: #D55E00; color: white; font-weight: bold;">%s</span>',
+          region_chars[i]
+        )
+      }
+    }
+
+    pairing_line <- paste(match_chars, collapse = "")
+    region_html <- paste(unlist(region_html_parts), collapse = "")
+
+    # Format the label
+    is_reference <- (!is.null(reference_id) && representative$id == reference_id)
+    label <- format_trna_id(representative$id)
+
+    # Calculate estimated Tm for this target
+    estimated_tm <- estimate_tm_with_mismatches(probe_sequence, n_mismatches)
+
+    # Status indicator with Tm
+    if (n_mismatches == 0) {
+      status <- tags$span(
+        style = "color: #009E73; margin-left: 10px;",
+        "\u2713 perfect match"
+      )
+    } else {
+      status <- tags$span(
+        style = "color: #D55E00; margin-left: 10px;",
+        paste0("\u26A0 ", n_mismatches, " mismatch", if (n_mismatches > 1) "es" else "")
+      )
+    }
+
+    # Tm display
+    tm_display <- if (show_tm) {
+      tm_color <- if (n_mismatches == 0) {
+        "#666"
+      } else if (estimated_tm >= perfect_tm - 10) {
+        "#D55E00"  # Warning: still high Tm despite mismatches
+      } else {
+        "#009E73"  # Good: Tm dropped significantly
+      }
+      tags$span(
+        style = paste0("margin-left: 10px; color: ", tm_color, ";"),
+        paste0("Tm \u2248 ", estimated_tm, "\u00B0C")
+      )
+    } else NULL
+
+    # Count badge if multiple identical
+    count_badge <- if (n_matching > 1) {
+      tags$span(
+        class = "badge bg-secondary",
+        style = "margin-left: 8px; font-size: 0.75em;",
+        paste0("+", n_matching - 1, " identical")
+      )
+    } else NULL
+
+    # Reference badge
+    ref_badge <- if (is_reference) {
+      tags$span(
+        class = "badge bg-primary",
+        style = "margin-left: 8px; font-size: 0.75em;",
+        "reference"
+      )
+    } else NULL
+
+    # Build this target's display
+    target_element <- tags$div(
+      style = if (idx > 1) "margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ddd;" else "",
+
+      # Header with label and status
+      tags$div(
+        style = "font-family: sans-serif; font-size: 0.85em; margin-bottom: 5px; display: flex; align-items: center; flex-wrap: wrap;",
+        tags$strong(label),
+        ref_badge,
+        count_badge,
+        status,
+        tm_display
+      ),
+
+      # Sequence alignment
+      tags$pre(
+        style = "font-family: 'Courier New', Consolas, monospace; font-size: 0.9em; line-height: 1.5; margin: 0; background: transparent;",
+        HTML(paste0(
+          '<span style="color: #0072B2;">5\u2032 </span>',
+          region_html,
+          '<span style="color: #0072B2;"> 3\u2032</span>\n',
+          '<span style="color: #009E73;">   ', pairing_line, '</span>\n',
+          '<span style="color: #D55E00;">3\u2032 ', probe_reversed, ' 5\u2032</span>'
+        ))
+      )
+    )
+
+    diagram_elements[[idx]] <- target_element
+  }
+
+  # Summary if there are more unique sequences than shown
+  more_note <- if (n_unique > max_show) {
+    tags$div(
+      style = "margin-top: 15px; font-size: 0.85em; color: #666; font-style: italic;",
+      paste0("... and ", n_unique - max_show, " more unique sequence(s) not shown")
+    )
+  } else NULL
+
+  # Build final diagram
+  tags$div(
+    class = "hybridization-diagram-multi",
+    style = "background-color: #f8f9fa; padding: 15px; border-radius: 6px; overflow-x: auto;",
+
+    # Title
+    tags$div(
+      style = "font-family: sans-serif; font-size: 0.85em; color: #666; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #ddd;",
+      paste0("Probe binding (positions ", start, "-", end, ") across ", n_total, " target",
+             if (n_total > 1) "s" else "",
+             " (", n_unique, " unique sequence", if (n_unique > 1) "s" else "", ")")
+    ),
+
+    # Target alignments
+    tagList(diagram_elements),
+
+    more_note,
+
+    # Legend
+    tags$div(
+      style = "margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd; font-family: sans-serif; font-size: 0.8em; color: #888; display: flex; gap: 15px; flex-wrap: wrap;",
+      tags$span(
+        tags$span(style = "color: #009E73;", "|"),
+        " base pair"
+      ),
+      tags$span(
+        tags$span(style = "background-color: #D55E00; color: white; padding: 0 3px;", "N"),
+        " mismatch"
+      )
+    )
+  )
+}
+
+# =============================================================================
 # Utility Functions
 # =============================================================================
 

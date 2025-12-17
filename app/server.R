@@ -38,8 +38,14 @@ server <- function(input, output, session) {
   observeEvent(input$organism, {
     showNotification("Loading tRNA data...", id = "loading", duration = NULL)
 
-    values$trna_data <- load_trna_data(input$organism)
+    # Load ALL tRNA data (both compartments) for off-target checking
+    all_data <- load_trna_data(input$organism)
+    values$trna_data_all <- all_data
     values$similarity_data <- load_sim_data(input$organism)
+
+    # Filter by current compartment selection
+    compartment <- input$compartment %||% "nuclear"
+    values$trna_data <- all_data[all_data$compartment == compartment, ]
 
     # Reset wizard state when organism changes
     values$wizard_step <- 1
@@ -53,12 +59,39 @@ server <- function(input, output, session) {
     removeNotification("loading")
 
     showNotification(
-      paste0("Loaded ", nrow(values$trna_data), " tRNAs for ",
+      paste0("Loaded ", nrow(values$trna_data), " ", compartment, " tRNAs for ",
              names(ORGANISMS)[ORGANISMS == input$organism]),
       type = "message",
       duration = 3
     )
   }, ignoreNULL = FALSE)
+
+  # ===========================================================================
+  # Filter by compartment when it changes
+  # ===========================================================================
+
+  observeEvent(input$compartment, {
+    req(values$trna_data_all)
+
+    compartment <- input$compartment
+    values$trna_data <- values$trna_data_all[values$trna_data_all$compartment == compartment, ]
+
+    # Reset wizard state when compartment changes
+    values$wizard_step <- 1
+    values$wizard_goal <- NULL
+    values$wizard_selection <- list(type = NULL, ids = character(), amino_acid = NULL, anticodon = NULL)
+    values$wizard_selection_obj <- NULL
+    values$wizard_feasibility <- NULL
+    values$wizard_probes <- NULL
+    values$design_params <- NULL
+
+    compartment_label <- if (compartment == "nuclear") "nuclear/cytoplasmic" else "mitochondrial"
+    showNotification(
+      paste0("Showing ", nrow(values$trna_data), " ", compartment_label, " tRNAs"),
+      type = "message",
+      duration = 3
+    )
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   # ===========================================================================
   # Wizard steps indicator

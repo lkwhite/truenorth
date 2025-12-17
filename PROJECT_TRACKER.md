@@ -121,6 +121,28 @@ Core probe design algorithms implemented. Visualization layer with anticodon hig
 
 ## Session Notes
 
+### 2024-12-16 - Hybridization Diagram
+- Added `render_hybridization_diagram()` to `R/visualization.R`:
+  - Shows **full tRNA sequence** with 5'→3' labels
+  - **Anticodon highlighted** with inverse colors (black background, white text)
+  - Shows probe inverted (3'→5') to display antiparallel base pairing
+  - Uses `|` characters to show Watson-Crick base pairs
+  - **Target context**: Shows tRNA ID as row label, target count, and conservation %
+- Added `render_multi_target_hybridization()` for multi-target probes:
+  - Shows probe binding to **all selected targets**
+  - **Groups identical sequences** together ("+N identical" badge)
+  - **Highlights mismatches** with orange background on target bases
+  - Reference tRNA shown first with "reference" badge
+  - Shows "✓ perfect match" or "⚠ N mismatches" status for each
+  - Summary header: "across N targets (M unique sequences)"
+  - Configurable max display (default 5 unique sequences)
+- Integrated into Step 4 (Design Results) Probe Detail section:
+  - **Target Binding**: Shows binding to all selected targets
+  - **Potential Off-Targets**: Shows 3 closest non-target tRNAs
+    - Color-coded specificity alerts (green ≥5, yellow 3-4, red <3 mismatches)
+    - Helps users evaluate cross-reactivity risk
+- Uses Okabe-Ito colors for tRNA (blue), probe (vermillion), mismatches (vermillion bg)
+
 ### 2024-12-16 - Visualization Layer
 - Added `R/visualization.R` with:
   - `find_anticodon_position()`: Locates anticodon with U→T conversion and position validation

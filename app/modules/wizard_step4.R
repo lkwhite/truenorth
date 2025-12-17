@@ -295,6 +295,159 @@ wizardStep4Server <- function(id, values) {
           class = "mt-3",
           tags$small(class = "text-muted",
                      "Reference: ", format_trna_id(probe$reference_id))
+        ),
+
+        # Hybridization diagram - Targets
+        tags$hr(),
+        tags$div(
+          class = "d-flex justify-content-between align-items-center mb-2",
+          tags$h5(class = "mb-0", "Target Binding"),
+          tags$div(
+            class = "form-check form-switch",
+            tags$input(
+              type = "checkbox",
+              class = "form-check-input",
+              id = ns("show_all_targets"),
+              onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("show_all_targets"))
+            ),
+            tags$label(class = "form-check-label small", `for` = ns("show_all_targets"), "Show all")
+          )
+        ),
+        uiOutput(ns("target_binding_diagram")),
+
+        # Off-target analysis (check ALL compartments for cross-hybridization)
+        tags$div(
+          class = "d-flex justify-content-between align-items-center mb-2 mt-4",
+          tags$h5(class = "mb-0", "Potential Off-Targets"),
+          tags$div(
+            class = "form-check form-switch",
+            tags$input(
+              type = "checkbox",
+              class = "form-check-input",
+              id = ns("show_all_offtargets"),
+              onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("show_all_offtargets"))
+            ),
+            tags$label(class = "form-check-label small", `for` = ns("show_all_offtargets"), "Show all")
+          )
+        ),
+        uiOutput(ns("offtarget_diagram"))
+      )
+    })
+
+    # Reactive target binding diagram with toggle
+    output$target_binding_diagram <- renderUI({
+      req(values$wizard_probes)
+
+      selected_row <- input$probe_table_rows_selected
+      if (is.null(selected_row) || length(selected_row) == 0) {
+        return(NULL)
+      }
+
+      probe <- values$wizard_probes[selected_row, ]
+      target_ids <- values$wizard_selection$ids
+      targets_df <- values$trna_data[values$trna_data$id %in% target_ids, ]
+
+      if (nrow(targets_df) == 0) {
+        return(tags$div(class = "text-muted", "Target sequence not available"))
+      }
+
+      # Use toggle to determine max_show (NULL = show all)
+      show_all <- input$show_all_targets %||% FALSE
+      max_show <- if (show_all) Inf else 5
+
+      render_multi_target_hybridization(
+        targets_df = targets_df,
+        probe_sequence = probe$probe_sequence,
+        start = probe$start,
+        end = probe$end,
+        reference_id = probe$reference_id,
+        max_show = max_show
+      )
+    })
+
+    # Reactive off-target diagram with toggle
+    output$offtarget_diagram <- renderUI({
+      req(values$wizard_probes)
+
+      selected_row <- input$probe_table_rows_selected
+      if (is.null(selected_row) || length(selected_row) == 0) {
+        return(NULL)
+      }
+
+      probe <- values$wizard_probes[selected_row, ]
+      target_ids <- values$wizard_selection$ids
+      all_trnas <- if (!is.null(values$trna_data_all)) values$trna_data_all else values$trna_data
+      off_target_df <- all_trnas[!all_trnas$id %in% target_ids, ]
+
+      if (nrow(off_target_df) == 0) {
+        return(tags$div(
+          class = "alert alert-success py-2",
+          icon("check-circle"),
+          " No off-targets - all tRNAs are targets"
+        ))
+      }
+
+      # Calculate mismatches for each off-target
+      off_target_df$binding_region <- substr(off_target_df$sequence, probe$start, probe$end)
+      probe_reversed <- paste(rev(strsplit(probe$probe_sequence, "")[[1]]), collapse = "")
+      probe_chars <- strsplit(probe_reversed, "")[[1]]
+
+      off_target_df$n_mismatches <- sapply(off_target_df$binding_region, function(region) {
+        region_chars <- strsplit(region, "")[[1]]
+        mismatches <- 0
+        for (i in seq_along(region_chars)) {
+          target_base <- toupper(region_chars[i])
+          probe_base <- if (i <= length(probe_chars)) toupper(probe_chars[i]) else "?"
+          is_match <- (target_base == "A" && probe_base == "T") ||
+                      (target_base == "T" && probe_base == "A") ||
+                      (target_base == "G" && probe_base == "C") ||
+                      (target_base == "C" && probe_base == "G")
+          if (!is_match) mismatches <- mismatches + 1
+        }
+        mismatches
+      })
+
+      # Sort by mismatches
+      off_target_df <- off_target_df[order(off_target_df$n_mismatches), ]
+
+      # Use toggle to determine max_show
+      show_all <- input$show_all_offtargets %||% FALSE
+      max_show <- if (show_all) Inf else 3
+      closest_off_targets <- if (show_all) off_target_df else head(off_target_df, max_show)
+
+      min_mismatches <- min(closest_off_targets$n_mismatches)
+
+      # Specificity alert
+      alert <- if (min_mismatches >= 5) {
+        tags$div(
+          class = "alert alert-success py-2 mb-3",
+          icon("check-circle"),
+          paste0(" Good specificity: closest off-target has ", min_mismatches, " mismatches")
+        )
+      } else if (min_mismatches >= 3) {
+        tags$div(
+          class = "alert alert-warning py-2 mb-3",
+          icon("exclamation-triangle"),
+          paste0(" Moderate specificity: closest off-target has ", min_mismatches, " mismatches")
+        )
+      } else {
+        tags$div(
+          class = "alert alert-danger py-2 mb-3",
+          icon("exclamation-circle"),
+          paste0(" Low specificity: closest off-target has only ", min_mismatches,
+                 " mismatch", if (min_mismatches != 1) "es" else "")
+        )
+      }
+
+      tagList(
+        alert,
+        render_multi_target_hybridization(
+          targets_df = closest_off_targets,
+          probe_sequence = probe$probe_sequence,
+          start = probe$start,
+          end = probe$end,
+          reference_id = NULL,
+          max_show = max_show
         )
       )
     })

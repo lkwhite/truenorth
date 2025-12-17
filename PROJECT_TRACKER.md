@@ -2,11 +2,11 @@
 
 **Last Updated:** 2024-12-16
 
-## Project Status: Core Algorithms Complete
+## Project Status: Visualization Layer In Progress
 
-## Current Phase: Phase 1 MVP (Algorithms Done, UI Pending)
+## Current Phase: Phase 1 MVP (Algorithms Done, Visualization Started)
 
-Core probe design algorithms implemented. Pre-computed similarity approach for specificity-aware design.
+Core probe design algorithms implemented. Visualization layer with anticodon highlighting and isoacceptor family views added. Shiny app UI next.
 
 ---
 
@@ -15,7 +15,7 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 | Task | Status | Notes |
 |------|--------|-------|
 | Shiny app skeleton | Not Started | Basic UI layout |
-| Visualization layer | Not Started | Heatmaps, alignment views |
+| Shiny module for sequence browser | Not Started | Interactive selection UI |
 
 ---
 
@@ -33,6 +33,8 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 | Similarity data cache | 2024-12-16 | Pre-computed for human, yeast, ecoli |
 | R/target_selection.R | 2024-12-16 | Hierarchical target selection, divergence analysis |
 | Integration tests | 2024-12-16 | Full workflow verified |
+| R/visualization.R | 2024-12-16 | Anticodon detection, HTML sequence formatting, isoacceptor views |
+| Visualization tests | 2024-12-16 | tests/test_visualization.R |
 
 ---
 
@@ -81,6 +83,8 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 | 2024-12-16 | Use R Shiny for GUI | Rapid prototyping, easy web deployment, good for bioinformatics |
 | 2024-12-16 | Start with tRNA probes | Specific use case with known requirements |
 | 2024-12-16 | Probe length 20-25 nt | Appropriate for tRNA northern blots |
+| 2024-12-16 | Use Okabe-Ito colors | Colorblind-friendly palette for accessibility |
+| 2024-12-16 | Validate anticodon position | Search for header anticodon in sequence, not fixed position |
 
 ---
 
@@ -95,12 +99,15 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 | `R/probe_design.R` | Probe generation, Tm/GC calculations, selective design |
 | `R/validation.R` | Specificity checking, off-target analysis |
 | `R/target_selection.R` | Hierarchical selection, divergence analysis |
+| `R/visualization.R` | HTML visualization, anticodon detection, isoacceptor views |
 | `scripts/generate_similarity_data.R` | Generate cached similarity matrices |
 | `tests/test_integration.R` | Quick integration test |
 | `tests/test_hierarchical_selection.R` | Hierarchical selection demo |
+| `tests/test_visualization.R` | Visualization function tests |
 | `data/similarity/*.rds` | Pre-computed similarity matrices |
 | `app/ui.R` | Shiny user interface (to create) |
 | `app/server.R` | Shiny server logic (to create) |
+| `app/modules/sequence_browser.R` | Shiny module for tRNA selection (to create) |
 
 ---
 
@@ -113,6 +120,19 @@ Core probe design algorithms implemented. Pre-computed similarity approach for s
 ---
 
 ## Session Notes
+
+### 2024-12-16 - Visualization Layer
+- Added `R/visualization.R` with:
+  - `find_anticodon_position()`: Locates anticodon with U→T conversion and position validation
+  - `add_anticodon_positions()`: Batch processing for data frames
+  - `format_sequence_html()`: HTML output with anticodon highlighting
+  - `format_trna_row_html()`: Complete row with checkbox, sequence, ID
+  - `render_amino_acid_view()`: Full isoacceptor family view grouped by anticodon
+  - `create_terminology_html()`: Educational panel explaining tRNA nomenclature
+- Using Okabe-Ito colorblind-friendly palette
+- Anticodon detection: 100% accuracy for yeast/ecoli, 99.6% for human (2 unusual mito tRNAs)
+- Fixed sequence_utils.R to handle "Ile2" variant amino acid names
+- Created test script with sample HTML output
 
 ### 2024-12-16 - Hierarchical Target Selection
 - Added `R/target_selection.R` with:

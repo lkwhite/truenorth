@@ -55,7 +55,8 @@ parse_trna_header <- function(header, organism) {
 
   if (organism == "ecoli") {
     # E. coli format: tRNA-Ala-GGC-1-1
-    pattern <- "^tRNA-([A-Za-z]+)-([A-Z]{3})-([0-9]+)-([0-9]+)$"
+    # Also handles variants like tRNA-Ile2-CAT-1-1 (Ile2 = Isoleucine variant 2)
+    pattern <- "^tRNA-([A-Za-z]+[0-9]*)-([A-Z]{3})-([0-9]+)-([0-9]+)$"
     match <- regmatches(header, regexec(pattern, header))[[1]]
 
     if (length(match) == 5) {

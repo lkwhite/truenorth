@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<style>body{background-color:white;}</style>
+
+  <title>Visualization Test</title>
+  <style>
+    .trna-sequence {
+      font-family: 'Courier New', monospace;
+      font-size: 0.95em;
+      letter-spacing: 1px;
+    }
+
+    .anticodon {
+      background-color: #56B4E9;
+      font-weight: bold;
+      padding: 1px 2px;
+      border-radius: 2px;
+    }
+
+    .trna-row {
+      cursor: pointer;
+      transition: background-color 0.15s;
+    }
+
+    .trna-row:hover {
+      background-color: #e9ecef !important;
+    }
+
+    .trna-row.selected {
+      background-color: #f0f0f0;
+    }
+
+    .isoacceptor-group {
+      margin-bottom: 20px;
+    }
+
+    .isoacceptor-header {
+      font-weight: bold;
+      padding: 5px 10px;
+      background-color: #f0f0f0;
+      border-left: 4px solid #0072B2;
+    }
+
+    .amino-acid-view {
+      max-width: 1200px;
+    }
+
+    .terminology-guide {
+      background-color: #56B4E922;
+      border: 1px solid #56B4E9;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 15px;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<html>
+  <body style="padding: 20px;">
+    <h2>E. coli Alanine tRNAs</h2>
+    <div class="amino-acid-view" style="font-family: sans-serif;">
+      <div class="aa-header" style="padding: 10px; background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; margin-bottom: 15px;">
+        <h3 style="margin: 0;">
+          Alanine (Ala) tRNAs
+           - E. coli
+          <span style="float: right; font-size: 0.8em; color: #666;">[5 total]</span>
+        </h3>
+      </div>
+      <div class="terminology-guide" style="background-color: #e7f3ff; border: 1px solid #b3d7ff; border-radius: 4px; padding: 10px; margin-bottom: 15px; font-size: 0.9em;">
+        <strong>Terminology: </strong>
+        <span>
+          Isoacceptor = same anticodon (e.g., all 
+          Ala
+          -
+          GGC
+          ). 
+          Gene family = copies from same ancestral gene (
+          Ala
+          -
+          GGC
+          -1-* are all family 1).
+        </span>
+      </div>
+      <div class="isoacceptor-group" style="margin-bottom: 20px;">
+        <div class="isoacceptor-header" style="font-weight: bold; padding: 5px 10px; background-color: #f0f0f0; border-left: 4px solid #0072B2;">Isoacceptor: Ala-GGC (2 genes)</div>
+        <div class="isoacceptor-rows" style="padding-left: 10px;">
+          <div class="trna-row " style="display: flex; align-items: center; padding: 4px 8px; margin: 2px 0; background-color: transparent; " data-id="tRNA-Ala-GGC-1-1">
+            <input type="checkbox" class="trna-checkbox" id="chk-tRNA-Ala-GGC-1-1" style="margin-right: 10px;"/>
+            
+            <span class="trna-sequence" style="font-family: monospace;">
+              GGGGCTATAGCTCAGCTGGGAGAGCGCTTGCAT
+              <span class="anticodon" style="background-color: #56B4E9; font-weight: bold; padding: 1px 2px; border-radius: 2px;">GGC</span>
+              ATGCAAGAGGTCAGCGGTTCGATCCCGCTTAGCTCCACCA
+            </span>
+            <span class="trna-id" style="margin-left: 15px; color: #666; font-size: 0.9em;">tRNA-Ala-GGC-1-1</span>
+          </div>
+          <div class="trna-row " style="display: flex; align-items: center; padding: 4px 8px; margin: 2px 0; background-color: transparent; " data-id="tRNA-Ala-GGC-1-2">
+            <input type="checkbox" class="trna-checkbox" id="chk-tRNA-Ala-GGC-1-2" style="margin-right: 10px;"/>
+            
+            <span class="trna-sequence" style="font-family: monospace;">
+              GGGGCTATAGCTCAGCTGGGAGAGCGCTTGCAT
+              <span class="anticodon" style="background-color: #56B4E9; font-weight: bold; padding: 1px 2px; border-radius: 2px;">GGC</span>
+              ATGCAAGAGGTCAGCGGTTCGATCCCGCTTAGCTCCACCA
+            </span>
+            <span class="trna-id" style="margin-left: 15px; color: #666; font-size: 0.9em;">tRNA-Ala-GGC-1-2</span>
+          </div>
+        </div>
+      </div>
+      <div class="isoacceptor-group" style="margin-bottom: 20px;">
+        <div class="isoacceptor-header" style="font-weight: bold; padding: 5px 10px; background-color: #f0f0f0; border-left: 4px solid #0072B2;">Isoacceptor: Ala-TGC (3 genes)</div>
+        <div class="isoacceptor-rows" style="padding-left: 10px;">
+          <div class="trna-row " style="display: flex; align-items: center; padding: 4px 8px; margin: 2px 0; background-color: transparent; " data-id="tRNA-Ala-TGC-1-1">
+            <input type="checkbox" class="trna-checkbox" id="chk-tRNA-Ala-TGC-1-1" style="margin-right: 10px;"/>
+            
+            <span class="trna-sequence" style="font-family: monospace;">
+              GGGGCTATAGCTCAGCTGGGAGAGCGCCTGCTT
+              <span class="anticodon" style="background-color: #56B4E9; font-weight: bold; padding: 1px 2px; border-radius: 2px;">TGC</span>
+              ACGCAGGAGGTCTGCGGTTCGATCCCGCATAGCTCCACCA
+            </span>
+            <span class="trna-id" style="margin-left: 15px; color: #666; font-size: 0.9em;">tRNA-Ala-TGC-1-1</span>
+          </div>
+          <div class="trna-row " style="display: flex; align-items: center; padding: 4px 8px; margin: 2px 0; background-color: transparent; " data-id="tRNA-Ala-TGC-1-2">
+            <input type="checkbox" class="trna-checkbox" id="chk-tRNA-Ala-TGC-1-2" style="margin-right: 10px;"/>
+            
+            <span class="trna-sequence" style="font-family: monospace;">
+              GGGGCTATAGCTCAGCTGGGAGAGCGCCTGCTT
+              <span class="anticodon" style="background-color: #56B4E9; font-weight: bold; padding: 1px 2px; border-radius: 2px;">TGC</span>
+              ACGCAGGAGGTCTGCGGTTCGATCCCGCATAGCTCCACCA
+            </span>
+            <span class="trna-id" style="margin-left: 15px; color: #666; font-size: 0.9em;">tRNA-Ala-TGC-1-2</span>
+          </div>
+          <div class="trna-row " style="display: flex; align-items: center; padding: 4px 8px; margin: 2px 0; background-color: transparent; " data-id="tRNA-Ala-TGC-1-3">
+            <input type="checkbox" class="trna-checkbox" id="chk-tRNA-Ala-TGC-1-3" style="margin-right: 10px;"/>
+            
+            <span class="trna-sequence" style="font-family: monospace;">
+              GGGGCTATAGCTCAGCTGGGAGAGCGCCTGCTT
+              <span class="anticodon" style="background-color: #56B4E9; font-weight: bold; padding: 1px 2px; border-radius: 2px;">TGC</span>
+              ACGCAGGAGGTCTGCGGTTCGATCCCGCATAGCTCCACCA
+            </span>
+            <span class="trna-id" style="margin-left: 15px; color: #666; font-size: 0.9em;">tRNA-Ala-TGC-1-3</span>
+          </div>
+        </div>
+      </div>
+      <div class="selection-summary" style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border-top: 1px solid #dee2e6;">
+        <span>Selection: 0 desired, 0 avoid</span>
+      </div>
+    </div>
+    <hr/>
+    <h2>Terminology Panel</h2>
+    <div class="terminology-panel" style="font-family: sans-serif; padding: 15px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; line-height: 1.6;">
+      <h4 style="margin-top: 0;">Understanding tRNA Nomenclature</h4>
+      <div style="font-family: monospace; margin: 15px 0; background: white; padding: 10px; border-radius: 4px;">
+        <pre style="margin: 0; font-size: 0.95em;">
+          Example: tRNA-Ala-AGC-12-3
+
+                        |   |   |  |
+
+                        |   |   |  +-- Copy number (3rd copy)
+
+                        |   |   +----- Gene family (family 12)
+
+                        |   +--------- Anticodon (AGC)
+
+                        +------------- Amino acid (Alanine)
+        </pre>
+      </div>
+      <dl style="margin: 0;">
+        <dt style="font-weight: bold; margin-top: 10px;">ISOACCEPTOR</dt>
+        <dd style="margin-left: 20px;">
+          All tRNAs with the same anticodon (e.g., all Ala-AGC tRNAs). 
+          These decode the same codon(s).
+        </dd>
+        <dt style="font-weight: bold; margin-top: 10px;">ISODECODER</dt>
+        <dd style="margin-left: 20px;">
+          tRNAs with the same anticodon but different body sequences. 
+          <span style="color: #dc3545;">Important for probe specificity!</span>
+           Two isodecoders may not cross-hybridize to the same probe.
+        </dd>
+        <dt style="font-weight: bold; margin-top: 10px;">GENE FAMILY</dt>
+        <dd style="margin-left: 20px;">
+          Copies from the same ancestral gene (e.g., Ala-AGC-1-1, Ala-AGC-1-2, Ala-AGC-1-3 
+          are all family 1). Usually have identical or nearly identical sequences.
+        </dd>
+      </dl>
+      <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 4px; font-size: 0.9em;">
+        <strong>Probe Design Tip: </strong>
+        To hit an entire gene family, design a probe against any member. 
+        To discriminate between isodecoders, look for regions where their sequences differ.
+      </div>
+    </div>
+  </body>
+</html>
+</html>

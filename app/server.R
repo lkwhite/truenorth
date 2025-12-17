@@ -41,6 +41,7 @@ server <- function(input, output, session) {
   # ===========================================================================
 
   observeEvent(input$organism, {
+    req(input$organism)  # Don't run if organism is NULL
     showNotification("Loading tRNA data...", id = "loading", duration = NULL)
 
     # Load ALL tRNA data (both compartments) for off-target checking

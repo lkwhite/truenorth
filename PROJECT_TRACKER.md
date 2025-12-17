@@ -6,9 +6,11 @@
 
 ## Project Status: Functional MVP
 
-## Current Phase: Phase 1 MVP Complete - Refinements
+## Current Phase: Deployed MVP
 
-Full wizard-based probe design workflow working. Hybridization diagrams with multi-target and off-target analysis. Compartment filtering (nuclear vs mito).
+App live at https://lkwhite.shinyapps.io/truenorth/
+
+Full wizard-based probe design workflow with Coverage Explorer for multi-target analysis.
 
 ---
 
@@ -17,6 +19,7 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 | Task | Status | Notes |
 |------|--------|-------|
 | Hybridization temp input | Future | Let user set hyb temp to show ΔT |
+| User documentation | Future | Add help/tutorial content |
 
 ---
 
@@ -24,6 +27,11 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 
 | Task | Date | Notes |
 |------|------|-------|
+| Wizard UX improvements | 2025-12-16 | Auto-advance for isoacceptor/amino_acid, organism selector on Step 1 |
+| Deploy to shinyapps.io | 2025-12-16 | Public deployment at lkwhite.shinyapps.io/truenorth |
+| Coverage Explorer | 2025-12-16 | Multi-select probes, cumulative coverage tracking, coverage-optimized ranking |
+| Feasibility warnings | 2025-12-16 | Show actual close non-targets with relationship badges |
+| Full tRNA visualization | 2025-12-16 | Show entire tRNA with probe region highlighted |
 | Rename to TRUENORTH | 2025-12-16 | Full rebrand with clickable compass logo (red needle), reset wizard on logo click |
 | Tm modification warning | 2024-12-16 | Added asterisk + footnote explaining Tm is for unmodified sequences |
 | Modification-aware ranking | 2024-12-16 | Probes penalized for D-loop, anticodon, TΨC overlap (not just anticodon) |
@@ -50,15 +58,15 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 
 ## Backlog
 
-### Phase 1: MVP
+### Phase 1: MVP ✅
 - [x] Load and parse FASTA sequences
 - [x] Basic probe design (user-specified region)
 - [x] Tm calculation (nearest-neighbor method)
 - [x] Specificity check with pre-computed similarity
-- [ ] Display probe sequences with properties (Shiny UI)
-- [ ] Export probe list (CSV)
+- [x] Display probe sequences with properties (Shiny UI)
+- [x] Export probe list (CSV)
 
-### Phase 2: Enhanced Specificity
+### Phase 2: Enhanced Specificity ✅
 - [x] Isoacceptor discrimination analysis
 - [x] Visual alignment of probes to targets (text-based)
 - [x] Highlight unique/divergent regions
@@ -68,14 +76,14 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 
 ### Phase 3: Advanced Features
 - [ ] Secondary structure consideration
-- [ ] Batch probe design for multiple targets
+- [x] Batch probe design for multiple targets (Coverage Explorer)
 - [ ] Probe optimization suggestions
 - [ ] Tm normalization across probe set
 
 ### Phase 4: Polish & Deploy
 - [ ] User documentation
 - [ ] Example workflows
-- [ ] Deploy to shinyapps.io
+- [x] Deploy to shinyapps.io
 - [ ] Performance optimization
 
 ---
@@ -106,18 +114,15 @@ Full wizard-based probe design workflow working. Hybridization diagrams with mul
 | `PROJECT_TRACKER.md` | This file - task tracking |
 | `R/sequence_utils.R` | FASTA parsing, header parsing, filtering |
 | `R/similarity.R` | Pre-computed similarity, divergent region detection |
-| `R/probe_design.R` | Probe generation, Tm/GC calculations, selective design |
+| `R/probe_design.R` | Probe generation, Tm/GC, coverage matrix, selective design |
 | `R/validation.R` | Specificity checking, off-target analysis |
 | `R/target_selection.R` | Hierarchical selection, divergence analysis |
 | `R/visualization.R` | HTML visualization, anticodon detection, isoacceptor views |
-| `scripts/generate_similarity_data.R` | Generate cached similarity matrices |
-| `tests/test_integration.R` | Quick integration test |
-| `tests/test_hierarchical_selection.R` | Hierarchical selection demo |
-| `tests/test_visualization.R` | Visualization function tests |
+| `app/ui.R` | Shiny user interface |
+| `app/server.R` | Shiny server logic |
+| `app/modules/wizard_step*.R` | 4-step wizard modules |
+| `deploy/` | shinyapps.io deployment bundle |
 | `data/similarity/*.rds` | Pre-computed similarity matrices |
-| `app/ui.R` | Shiny user interface (to create) |
-| `app/server.R` | Shiny server logic (to create) |
-| `app/modules/sequence_browser.R` | Shiny module for tRNA selection (to create) |
 
 ---
 

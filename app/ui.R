@@ -1,25 +1,135 @@
 # ui.R
-# Compass Shiny app UI with sidebar navigation
+# Compass Shiny app UI - Wizard-based probe design flow
 
-ui <- page_navbar(
-  title = "COMPASS",
-  id = "navbar",
+ui <- page_fluid(
   theme = bs_theme(
     version = 5,
     bootswatch = "flatly",
     primary = "#0072B2"  # Okabe-Ito blue
+  ),
 
-),
+  # Include CSS
+  tags$head(
+    get_visualization_css(),
+    tags$style(HTML("
+      /* Wizard step indicator */
+      .wizard-steps {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0 30px 0;
+        padding: 0;
+        list-style: none;
+      }
+      .wizard-step {
+        display: flex;
+        align-items: center;
+        color: #999;
+      }
+      .wizard-step-number {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background-color: #e9ecef;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        margin-right: 8px;
+      }
+      .wizard-step-label {
+        font-size: 0.9em;
+      }
+      .wizard-step.active .wizard-step-number {
+        background-color: #0072B2;
+        color: white;
+      }
+      .wizard-step.active .wizard-step-label {
+        color: #0072B2;
+        font-weight: bold;
+      }
+      .wizard-step.completed .wizard-step-number {
+        background-color: #009E73;
+        color: white;
+      }
+      .wizard-step.completed .wizard-step-label {
+        color: #009E73;
+      }
+      .wizard-step-connector {
+        width: 60px;
+        height: 2px;
+        background-color: #e9ecef;
+        margin: 0 15px;
+      }
+      .wizard-step.completed + .wizard-step-connector,
+      .wizard-step-connector.completed {
+        background-color: #009E73;
+      }
 
-  # Header with organism selector
-  header = tags$div(
+      /* Wizard content area */
+      .wizard-content {
+        min-height: 500px;
+        padding: 20px;
+      }
+
+      /* Wizard navigation buttons */
+      .wizard-nav {
+        display: flex;
+        justify-content: space-between;
+        padding: 20px;
+        border-top: 1px solid #dee2e6;
+        margin-top: 20px;
+      }
+
+      /* Goal cards */
+      .goal-card {
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 2px solid transparent;
+        height: 100%;
+      }
+      .goal-card:hover {
+        border-color: #0072B2;
+        transform: translateY(-2px);
+      }
+      .goal-card.selected {
+        border-color: #0072B2;
+        background-color: #f0f7fb;
+      }
+      .goal-card .card-title {
+        color: #0072B2;
+      }
+
+      /* Selection summary badge */
+      .selection-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.85em;
+        margin-right: 10px;
+      }
+      .selection-badge.targets {
+        background-color: #009E73;
+        color: white;
+      }
+
+      /* Feasibility indicators */
+      .feasibility-excellent { color: #009E73; }
+      .feasibility-good { color: #56B4E9; }
+      .feasibility-moderate { color: #E69F00; }
+      .feasibility-challenging { color: #D55E00; }
+      .feasibility-not-feasible { color: #CC79A7; }
+    "))
+  ),
+
+  # Header
+  tags$div(
     class = "container-fluid",
-    style = "padding: 10px 20px; background-color: #f8f9fa; border-bottom: 1px solid #dee2e6;",
+    style = "padding: 15px 20px; background-color: #0072B2; color: white;",
     tags$div(
       class = "d-flex justify-content-between align-items-center",
-      tags$span(
-        style = "font-size: 0.9em; color: #666;",
-        "tRNA Northern Probe Designer"
+      tags$div(
+        tags$h4("COMPASS", style = "margin: 0; font-weight: bold;"),
+        tags$small("tRNA Northern Probe Designer")
       ),
       selectInput(
         "organism",
@@ -31,91 +141,18 @@ ui <- page_navbar(
     )
   ),
 
-  # Include visualization CSS
-  tags$head(
-    get_visualization_css(),
-    tags$style(HTML("
-      .nav-link.active {
-        font-weight: bold;
-      }
-      .selection-summary {
-        padding: 10px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
-        margin-top: 15px;
-      }
-      .btn-desired {
-        background-color: #009E73;
-        border-color: #009E73;
-        color: white;
-      }
-      .btn-desired:hover {
-        background-color: #007d5c;
-        border-color: #007d5c;
-        color: white;
-      }
-      .btn-avoid {
-        background-color: #D55E00;
-        border-color: #D55E00;
-        color: white;
-      }
-      .btn-avoid:hover {
-        background-color: #b34d00;
-        border-color: #b34d00;
-        color: white;
-      }
-    "))
-  ),
+  # Wizard steps indicator
+  uiOutput("wizard_steps_ui"),
 
-  # ==========================================================================
-  # Browse tRNAs tab
-  # ==========================================================================
-  nav_panel(
-    title = "Browse tRNAs",
-    icon = icon("dna"),
-    browseUI("browse")
-  ),
-
-  # ==========================================================================
-  # Design Probes tab
-  # ==========================================================================
-  nav_panel(
-    title = "Design Probes",
-    icon = icon("flask"),
-    designUI("design")
-  ),
-
-  # ==========================================================================
-  # Results tab
-  # ==========================================================================
-  nav_panel(
-    title = "Results",
-    icon = icon("table"),
-    resultsUI("results")
-  ),
-
-  # ==========================================================================
-  # Sidebar with selection summary
-  # ==========================================================================
-  nav_spacer(),
-  nav_item(
+  # Main wizard content area
+  tags$div(
+    class = "container",
     tags$div(
-      style = "padding: 10px; min-width: 150px;",
-      tags$strong("Selection"),
-      tags$div(
-        id = "selection-summary",
-        class = "selection-summary",
-        tags$div(
-          id = "desired-count",
-          style = paste0("color: ", COLORS$desired, ";"),
-          "0 desired"
-        ),
-        tags$div(
-          id = "avoid-count",
-          style = paste0("color: ", COLORS$avoid, ";"),
-          "0 avoid"
-        )
-      )
-    )
+      class = "wizard-content",
+      uiOutput("wizard_content")
+    ),
+
+    # Navigation buttons
+    uiOutput("wizard_nav")
   )
 )

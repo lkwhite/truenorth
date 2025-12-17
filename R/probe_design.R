@@ -403,10 +403,31 @@ design_probes_selective <- function(selection,
                                     max_length = 25,
                                     min_conservation = 90,
                                     min_divergence = 30,
-                                    top_n = 20) {
+                                    top_n = 20,
+                                    region_pref = "any",
+                                    avoid_anticodon = TRUE) {
 
   # Analyze conservation within desired group
   conservation <- analyze_group_conservation(selection$desired)
+
+  # Get reference sequence length for region filtering
+  ref_seq <- selection$desired$sequence[1]
+  ref_len <- nchar(ref_seq)
+  midpoint <- ref_len / 2
+
+  # Get anticodon position from reference (if available)
+  ref_row <- selection$desired[1, ]
+  anticodon_start <- ref_row$anticodon_start
+  anticodon_end <- ref_row$anticodon_end
+  # Expand anticodon zone to include 1 nt on each side (heavily modified region)
+  if (!is.na(anticodon_start) && !is.na(anticodon_end)) {
+    anticodon_zone_start <- max(1, anticodon_start - 1)
+    anticodon_zone_end <- min(ref_len, anticodon_end + 1)
+  } else {
+    # Default anticodon position if not available (~34-36 in standard numbering)
+    anticodon_zone_start <- 33
+    anticodon_zone_end <- 37
+  }
 
   # Find selective regions
   regions <- find_selective_regions(
@@ -431,11 +452,53 @@ design_probes_selective <- function(selection,
   ref_id <- selection$desired$id[1]
   ref_seq <- selection$desired$sequence[1]
 
-  # Generate probes from top regions
-  best_regions <- head(regions[regions$quality %in% c("EXCELLENT", "GOOD", "FAIR"), ], 10)
+  # Filter regions by preference
+  if (region_pref == "5prime") {
+    regions <- regions[regions$end <= midpoint + 5, ]  # Allow slight overlap
+  } else if (region_pref == "3prime") {
+    regions <- regions[regions$start >= midpoint - 5, ]
+  }
+
+  if (nrow(regions) == 0) {
+    warning("No regions found in preferred region. Try 'any' region preference.")
+    return(list(
+      probes = data.frame(),
+      conservation_analysis = conservation,
+      region_analysis = data.frame()
+    ))
+  }
+
+  # Filter out anticodon-overlapping regions FIRST if avoidance is enabled
+  # This ensures we prioritize non-anticodon regions
+  if (avoid_anticodon) {
+    # Mark which regions overlap anticodon
+    regions$overlaps_ac <- (regions$start <= anticodon_zone_end & regions$end >= anticodon_zone_start)
+
+    # Try to get non-overlapping regions first
+    non_ac_regions <- regions[!regions$overlaps_ac, ]
+
+    if (nrow(non_ac_regions) > 0) {
+      # Use non-anticodon regions preferentially
+      best_regions <- head(non_ac_regions[non_ac_regions$quality %in% c("EXCELLENT", "GOOD", "FAIR"), ], 10)
+      if (nrow(best_regions) < 5) {
+        # Add more non-anticodon regions even if lower quality
+        best_regions <- head(non_ac_regions, 10)
+      }
+      # Also include some anticodon regions for comparison (but fewer)
+      ac_regions <- head(regions[regions$overlaps_ac & regions$quality %in% c("EXCELLENT", "GOOD"), ], 5)
+      best_regions <- rbind(best_regions, ac_regions)
+    } else {
+      # No non-anticodon regions available - use all with warning
+      warning("All viable probe regions overlap the anticodon. Consider this when interpreting results.")
+      best_regions <- head(regions[regions$quality %in% c("EXCELLENT", "GOOD", "FAIR"), ], 15)
+    }
+  } else {
+    # No anticodon avoidance - just take top regions
+    best_regions <- head(regions[regions$quality %in% c("EXCELLENT", "GOOD", "FAIR"), ], 15)
+  }
 
   if (nrow(best_regions) == 0) {
-    best_regions <- head(regions, 5)  # Fall back to top 5 regardless of quality
+    best_regions <- head(regions, 10)  # Fall back to top 10 regardless of quality
   }
 
   all_probes <- list()
@@ -444,6 +507,17 @@ design_probes_selective <- function(selection,
     reg <- best_regions[i, ]
     target_region <- substr(ref_seq, reg$start, reg$end)
     probe_seq <- reverse_complement(target_region)
+
+    # Determine which region of tRNA this probe targets
+    probe_midpoint <- (reg$start + reg$end) / 2
+    if (probe_midpoint <= midpoint) {
+      trna_region <- "5' half"
+    } else {
+      trna_region <- "3' half"
+    }
+
+    # Check anticodon overlap
+    overlaps_anticodon <- (reg$start <= anticodon_zone_end && reg$end >= anticodon_zone_start)
 
     all_probes[[i]] <- data.frame(
       start = reg$start,
@@ -458,18 +532,28 @@ design_probes_selective <- function(selection,
       avoid_divergence = reg$mean_divergence,
       selectivity_score = reg$selectivity_score,
       quality = reg$quality,
+      trna_region = trna_region,
+      overlaps_anticodon = overlaps_anticodon,
       stringsAsFactors = FALSE
     )
   }
 
   probes <- bind_rows(all_probes)
 
-  # Score probes
+  # Score probes with anticodon penalty
   probes$score <- sapply(1:nrow(probes), function(i) {
     base_score <- score_probe(probes[i, ])
     # Bonus for selectivity
     selectivity_bonus <- probes$selectivity_score[i] / 2
-    base_score + selectivity_bonus
+
+    # Anticodon penalty - probes overlapping heavily modified region score lower
+    anticodon_penalty <- 0
+    if (avoid_anticodon && probes$overlaps_anticodon[i]) {
+      # Significant penalty - effectively requires ~3-4nt longer probe to compete
+      anticodon_penalty <- 25
+    }
+
+    base_score + selectivity_bonus - anticodon_penalty
   })
 
   # Sort and rank

@@ -24,12 +24,18 @@ source("../R/target_selection.R")
 source("../R/visualization.R")
 
 # =============================================================================
-# Source Shiny modules
+# Source Shiny modules - Wizard-based UI
 # =============================================================================
 
-source("modules/browse_module.R")
-source("modules/design_module.R")
-source("modules/results_module.R")
+source("modules/wizard_step1.R")
+source("modules/wizard_step2.R")
+source("modules/wizard_step3.R")
+source("modules/wizard_step4.R")
+
+# Old modules (archived)
+# source("modules/browse_module.R")
+# source("modules/design_module.R")
+# source("modules/results_module.R")
 
 # =============================================================================
 # Pre-load data for faster startup

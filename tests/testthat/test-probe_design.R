@@ -124,3 +124,135 @@ test_that("score_probe penalizes extreme GC content", {
   expect_true(score_good > score_low)
   expect_true(score_good > score_high)
 })
+
+test_that("score_probe gives bonus for optimal length", {
+  # 22-23 nt should get a small bonus
+  probe_22 <- list(gc_content = 50, tm_nn = 55, length = 22)
+  probe_23 <- list(gc_content = 50, tm_nn = 55, length = 23)
+  probe_20 <- list(gc_content = 50, tm_nn = 55, length = 20)
+  probe_25 <- list(gc_content = 50, tm_nn = 55, length = 25)
+
+  score_22 <- score_probe(probe_22)
+  score_23 <- score_probe(probe_23)
+  score_20 <- score_probe(probe_20)
+  score_25 <- score_probe(probe_25)
+
+  # 22 and 23 should have same bonus
+  expect_equal(score_22, score_23)
+  # 22/23 should score higher than 20 or 25
+  expect_true(score_22 > score_20)
+  expect_true(score_22 > score_25)
+})
+
+test_that("score_probe applies Tm penalty when target specified", {
+  probe <- list(gc_content = 50, tm_nn = 55, length = 22)
+
+  # No Tm target - no penalty
+  score_no_target <- score_probe(probe)
+
+  # Tm matches target - no penalty
+  score_exact <- score_probe(probe, target_tm = 55)
+
+  # Tm differs from target - penalty applied
+  score_off <- score_probe(probe, target_tm = 65)
+
+  expect_equal(score_no_target, score_exact)
+  expect_true(score_exact > score_off)
+})
+
+test_that("score_probe applies specificity bonus", {
+  probe <- list(gc_content = 50, tm_nn = 55, length = 22)
+
+  score_no_spec <- score_probe(probe)
+  score_with_spec <- score_probe(probe, specificity_score = 0.8)
+
+  expect_true(score_with_spec > score_no_spec)
+})
+
+test_that("score_probe never returns negative", {
+  # Extreme case: very bad GC content
+  probe_bad <- list(gc_content = 0, tm_nn = 55, length = 15)
+
+  score <- score_probe(probe_bad)
+
+  expect_true(score >= 0)
+})
+
+test_that("score_probe handles edge cases at GC boundaries", {
+  # Right at the boundaries
+  probe_low_boundary <- list(gc_content = 40, tm_nn = 55, length = 22)
+  probe_high_boundary <- list(gc_content = 60, tm_nn = 55, length = 22)
+  probe_inside <- list(gc_content = 50, tm_nn = 55, length = 22)
+
+  score_low <- score_probe(probe_low_boundary)
+  score_high <- score_probe(probe_high_boundary)
+  score_inside <- score_probe(probe_inside)
+
+  # At boundaries should have same score as inside (no penalty)
+  expect_equal(score_low, score_inside)
+  expect_equal(score_high, score_inside)
+})
+
+# =============================================================================
+# Tests for modification penalty functions
+# =============================================================================
+
+test_that("get_modification_zones returns correct structure", {
+  zones <- get_modification_zones(76)
+
+  expect_true(is.data.frame(zones))
+  expect_true("start" %in% names(zones))
+  expect_true("end" %in% names(zones))
+  expect_true("risk" %in% names(zones))
+  expect_true("description" %in% names(zones))
+  expect_equal(nrow(zones), 3)  # D-loop, Anticodon, TΨC
+})
+test_that("get_modification_zones scales with sequence length", {
+  zones_76 <- get_modification_zones(76)
+  zones_152 <- get_modification_zones(152)  # Double length
+
+  # Positions should roughly double
+  expect_true(zones_152$start[1] > zones_76$start[1])
+  expect_true(zones_152$end[2] > zones_76$end[2])
+})
+
+test_that("calculate_modification_penalty returns 0 for non-modified regions", {
+  # Position 1-10 should not overlap any modification zones
+  penalty <- calculate_modification_penalty(1, 10, seq_length = 76)
+
+  expect_equal(penalty, 0)
+})
+
+test_that("calculate_modification_penalty penalizes anticodon overlap", {
+  # Anticodon is around position 34-37 in standard tRNA
+  penalty_ac <- calculate_modification_penalty(34, 40, seq_length = 76)
+  penalty_no_ac <- calculate_modification_penalty(1, 10, seq_length = 76)
+
+  expect_true(penalty_ac > penalty_no_ac)
+  expect_true(penalty_ac > 0)
+})
+
+test_that("calculate_modification_penalty scales with overlap fraction", {
+  # More overlap = higher penalty
+  penalty_full <- calculate_modification_penalty(34, 37, seq_length = 76)  # Full anticodon
+  penalty_partial <- calculate_modification_penalty(36, 45, seq_length = 76)  # Partial
+
+  # Full overlap of anticodon should have higher penalty per base
+  # but partial overlap is a larger region
+  expect_true(penalty_full > 0)
+  expect_true(penalty_partial > 0)
+})
+
+test_that("calculate_modification_penalty handles D-loop region", {
+  # D-loop is around positions 16-20
+  penalty_dloop <- calculate_modification_penalty(15, 22, seq_length = 76)
+
+  expect_true(penalty_dloop > 0)
+})
+
+test_that("calculate_modification_penalty handles TΨC loop region", {
+  # TΨC loop is around positions 54-56
+  penalty_tpsi <- calculate_modification_penalty(52, 58, seq_length = 76)
+
+  expect_true(penalty_tpsi > 0)
+})

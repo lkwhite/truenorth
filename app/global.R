@@ -27,6 +27,7 @@ source("../R/visualization.R")
 # Source Shiny modules - Wizard-based UI
 # =============================================================================
 
+source("modules/help_content.R")  # Help content and tooltips
 source("modules/wizard_step1.R")
 source("modules/wizard_step2.R")
 source("modules/wizard_step3.R")

@@ -5,6 +5,14 @@ wizardStep4UI <- function(id) {
   ns <- NS(id)
 
   tagList(
+    # Help section
+    collapsible_help(
+      ns("help_step4"),
+      "Tips for selecting probes",
+      help_step4_ui(),
+      collapsed = TRUE
+    ),
+
     # Selection context
     uiOutput(ns("selection_context")),
 

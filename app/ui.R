@@ -8,9 +8,10 @@ ui <- page_fluid(
     primary = "#0072B2"  # Okabe-Ito blue
   ),
 
-  # Include CSS
+  # Include CSS and JS
   tags$head(
     get_visualization_css(),
+    tooltip_js(),  # Initialize Bootstrap tooltips
     tags$style(HTML("
       /* Wizard step indicator */
       .wizard-steps {

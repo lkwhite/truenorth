@@ -5,6 +5,14 @@ wizardStep1UI <- function(id) {
   ns <- NS(id)
 
   tagList(
+    # Help section
+    collapsible_help(
+      ns("help_step1"),
+      "Need help choosing?",
+      help_step1_ui(),
+      collapsed = TRUE
+    ),
+
     tags$div(
       class = "text-center mb-4",
       tags$h3("What do you want to detect?"),

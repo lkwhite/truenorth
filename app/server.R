@@ -33,7 +33,14 @@ server <- function(input, output, session) {
     # Coverage tracking
     coverage_data = NULL,       # Coverage matrix and related data
     coverage_estimate = NULL,   # Estimated probes needed for coverage levels
-    selected_probes = integer() # User-selected probe ranks for export
+    selected_probes = integer(), # User-selected probe ranks for export
+
+    # Probe cart (session-based, for collecting probes across designs)
+    probe_cart = list(),        # List of: list(name, sequence, organism, compartment, targets, tm, gc)
+
+    # Current organism/compartment (for module access)
+    current_organism = "human",
+    current_compartment = "nuclear"
   )
 
   # ===========================================================================
@@ -43,6 +50,9 @@ server <- function(input, output, session) {
   observeEvent(input$organism, {
     req(input$organism)  # Don't run if organism is NULL
     showNotification("Loading tRNA data...", id = "loading", duration = NULL)
+
+    # Store organism selection in values for module access
+    values$current_organism <- input$organism
 
     # Load ALL tRNA data (both compartments) for off-target checking
     all_data <- load_trna_data(input$organism)
@@ -83,6 +93,7 @@ server <- function(input, output, session) {
     req(values$trna_data_all)
 
     compartment <- input$compartment
+    values$current_compartment <- compartment  # Store for module access
     values$trna_data <- values$trna_data_all[values$trna_data_all$compartment == compartment, ]
 
     # Reset wizard state when compartment changes
@@ -773,5 +784,141 @@ server <- function(input, output, session) {
   wizardStep2Server("step2", values)
   wizardStep3Server("step3", values)
   wizardStep4Server("step4", values)
+
+  # ===========================================================================
+  # Probe Cart functionality
+  # ===========================================================================
+
+  # Cart count display
+  output$cart_count <- renderText({
+    n <- length(values$probe_cart)
+    if (n == 0) "" else as.character(n)
+  })
+
+  # Cart contents rendering
+  output$cart_contents <- renderUI({
+    cart <- values$probe_cart
+
+    if (length(cart) == 0) {
+      return(tags$div(
+        class = "text-center text-muted py-5",
+        icon("shopping-cart", class = "fa-3x mb-3 opacity-50"),
+        tags$p(class = "lead mb-1", "Your cart is empty"),
+        tags$p(class = "small", "Add probes from the design results to collect them here")
+      ))
+    }
+
+    # Build cart table
+    tagList(
+      tags$p(
+        class = "text-muted mb-3",
+        sprintf("%d probe%s in cart", length(cart), if (length(cart) == 1) "" else "s")
+      ),
+      tags$table(
+        class = "table table-sm table-hover",
+        tags$thead(
+          tags$tr(
+            tags$th("Name", style = "width: 35%;"),
+            tags$th("Sequence", style = "width: 45%;"),
+            tags$th("Tm", style = "width: 10%; text-align: center;"),
+            tags$th("", style = "width: 10%; text-align: center;")
+          )
+        ),
+        tags$tbody(
+          lapply(seq_along(cart), function(i) {
+            item <- cart[[i]]
+            tags$tr(
+              tags$td(
+                tags$strong(item$name),
+                tags$br(),
+                tags$small(class = "text-muted", item$organism_label)
+              ),
+              tags$td(
+                tags$code(item$sequence, style = "font-size: 0.85em; word-break: break-all;")
+              ),
+              tags$td(
+                style = "text-align: center;",
+                sprintf("%.1f", item$tm)
+              ),
+              tags$td(
+                style = "text-align: center;",
+                actionButton(
+                  paste0("remove_cart_", i),
+                  icon("times"),
+                  class = "btn btn-sm btn-outline-danger",
+                  onclick = sprintf("Shiny.setInputValue('remove_cart_item', %d, {priority: 'event'})", i)
+                )
+              )
+            )
+          })
+        )
+      ),
+      tags$hr(),
+      tags$div(
+        class = "alert alert-info py-2",
+        icon("info-circle", class = "me-2"),
+        tags$small(
+          "Export will create a CSV with Name and Sequence columns, ",
+          "ready for IDT bulk oligo ordering."
+        )
+      )
+    )
+  })
+
+  # Handle remove item from cart
+  observeEvent(input$remove_cart_item, {
+    idx <- input$remove_cart_item
+    if (!is.null(idx) && idx > 0 && idx <= length(values$probe_cart)) {
+      removed_name <- values$probe_cart[[idx]]$name
+      values$probe_cart <- values$probe_cart[-idx]
+      showNotification(
+        sprintf("Removed '%s' from cart", removed_name),
+        type = "message",
+        duration = 2
+      )
+    }
+  })
+
+  # Clear cart
+  observeEvent(input$clear_cart, {
+    if (length(values$probe_cart) > 0) {
+      n <- length(values$probe_cart)
+      values$probe_cart <- list()
+      showNotification(
+        sprintf("Cleared %d probe%s from cart", n, if (n == 1) "" else "s"),
+        type = "message",
+        duration = 2
+      )
+    }
+  })
+
+  # Export cart as CSV for IDT
+  output$export_cart <- downloadHandler(
+    filename = function() {
+      paste0("truenorth_probes_", format(Sys.Date(), "%Y%m%d"), ".csv")
+    },
+    content = function(file) {
+      cart <- values$probe_cart
+
+      if (length(cart) == 0) {
+        # Empty cart - write placeholder
+        write.csv(
+          data.frame(Name = character(), Sequence = character()),
+          file,
+          row.names = FALSE
+        )
+        return()
+      }
+
+      # Build export data frame with only Name and Sequence (IDT format)
+      export_df <- data.frame(
+        Name = vapply(cart, `[[`, character(1), "name"),
+        Sequence = vapply(cart, `[[`, character(1), "sequence"),
+        stringsAsFactors = FALSE
+      )
+
+      write.csv(export_df, file, row.names = FALSE)
+    }
+  )
 
 }

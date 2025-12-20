@@ -174,8 +174,27 @@ ui <- page_fluid(
                      style = "opacity: 0.9;")
         )
       ),
-      # Show organism/compartment selection as static text (after Step 1)
-      uiOutput("organism_display")
+      # Cart badge and organism display
+      tags$div(
+        class = "d-flex align-items-center gap-3",
+        # Cart button with badge
+        actionButton(
+          "show_cart",
+          tagList(
+            icon("shopping-cart"),
+            tags$span(
+              id = "cart_badge_count",
+              class = "badge bg-light text-primary ms-1",
+              style = "font-size: 0.75em;",
+              textOutput("cart_count", inline = TRUE)
+            )
+          ),
+          class = "btn btn-outline-light btn-sm",
+          title = "View probe cart"
+        ),
+        # Show organism/compartment selection as static text (after Step 1)
+        uiOutput("organism_display")
+      )
     )
   ),
 
@@ -192,5 +211,63 @@ ui <- page_fluid(
 
     # Navigation buttons
     uiOutput("wizard_nav")
-  )
+  ),
+
+  # Cart Modal
+  tags$div(
+    class = "modal fade",
+    id = "cart_modal",
+    tabindex = "-1",
+    `aria-labelledby` = "cartModalLabel",
+    `aria-hidden` = "true",
+    tags$div(
+      class = "modal-dialog modal-lg modal-dialog-scrollable",
+      tags$div(
+        class = "modal-content",
+        # Modal header
+        tags$div(
+          class = "modal-header bg-primary text-white",
+          tags$h5(
+            class = "modal-title",
+            id = "cartModalLabel",
+            icon("shopping-cart", class = "me-2"),
+            "Your Probe Cart"
+          ),
+          tags$button(
+            type = "button",
+            class = "btn-close btn-close-white",
+            `data-bs-dismiss` = "modal",
+            `aria-label` = "Close"
+          )
+        ),
+        # Modal body
+        tags$div(
+          class = "modal-body",
+          uiOutput("cart_contents")
+        ),
+        # Modal footer
+        tags$div(
+          class = "modal-footer",
+          tags$div(
+            class = "d-flex justify-content-between w-100",
+            actionButton("clear_cart", "Clear All",
+                         class = "btn btn-outline-danger btn-sm",
+                         icon = icon("trash")),
+            downloadButton("export_cart", "Export for IDT",
+                           class = "btn btn-success",
+                           icon = icon("download"))
+          )
+        )
+      )
+    )
+  ),
+
+  # JavaScript for cart modal
+  tags$script(HTML("
+    // Show cart modal when button clicked
+    $(document).on('click', '#show_cart', function() {
+      var cartModal = new bootstrap.Modal(document.getElementById('cart_modal'));
+      cartModal.show();
+    });
+  "))
 )

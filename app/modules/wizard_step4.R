@@ -149,9 +149,15 @@ wizardStep4Server <- function(id, values) {
               class = "card text-center",
               tags$div(
                 class = "card-body py-2",
-                tags$small(class = "text-muted d-block mb-1", "Export selected"),
-                downloadButton(ns("download_probes"), "Export CSV",
-                               class = "btn-primary btn-sm")
+                tags$small(class = "text-muted d-block mb-1", "Export / Cart"),
+                tags$div(
+                  class = "d-flex gap-1 justify-content-center",
+                  downloadButton(ns("download_probes"), "CSV",
+                                 class = "btn-primary btn-sm"),
+                  actionButton(ns("add_to_cart"), icon("cart-plus"),
+                               class = "btn btn-success btn-sm",
+                               title = "Add selected probes to cart")
+                )
               )
             )
           )
@@ -1092,6 +1098,92 @@ wizardStep4Server <- function(id, values) {
       }
 
       tagList(sections$diff_aa, sections$same_aa)
+    })
+
+    # Add to cart handler
+    observeEvent(input$add_to_cart, {
+      probes <- values$wizard_probes
+      selected <- values$selected_probes %||% integer()
+
+      if (is.null(probes) || nrow(probes) == 0) {
+        showNotification("No probes to add", type = "warning")
+        return()
+      }
+
+      # Filter to selected probes if any are selected
+      if (length(selected) > 0) {
+        probes_to_add <- probes[probes$rank %in% selected, ]
+      } else {
+        showNotification("Select probes to add to cart", type = "warning")
+        return()
+      }
+
+      if (nrow(probes_to_add) == 0) {
+        showNotification("No probes selected", type = "warning")
+        return()
+      }
+
+      # Get current context from values (stored by main server)
+      organism <- values$current_organism %||% "human"
+      compartment <- values$current_compartment %||% "nuclear"
+      target_ids <- values$wizard_selection$ids
+      trna_df <- values$trna_data
+
+      # Get existing cart names to avoid duplicates
+      existing_names <- if (length(values$probe_cart) > 0) {
+        sapply(values$probe_cart, `[[`, "name")
+      } else {
+        character()
+      }
+
+      # Generate smart names for the probes
+      probe_names <- generate_probe_names_batch(
+        probes = probes_to_add,
+        organism = organism,
+        compartment = compartment,
+        target_ids = target_ids,
+        trna_df = trna_df,
+        existing_names = existing_names
+      )
+
+      # Get organism label for display
+      organism_label <- switch(organism,
+        "human" = "Human",
+        "yeast" = "Yeast (S. cerevisiae)",
+        "ecoli" = "E. coli",
+        organism
+      )
+      if (compartment == "mitochondrial") {
+        organism_label <- paste(organism_label, "(mito)")
+      }
+
+      # Add each probe to cart
+      new_items <- lapply(seq_len(nrow(probes_to_add)), function(i) {
+        probe <- probes_to_add[i, ]
+        list(
+          name = probe_names[i],
+          sequence = probe$probe_sequence,
+          organism = organism,
+          compartment = compartment,
+          organism_label = organism_label,
+          tm = probe$tm_nn,
+          gc = probe$gc_content,
+          targets = if ("targets_covered" %in% names(probe)) probe$targets_covered else "",
+          region = probe$trna_region,
+          rank = probe$rank
+        )
+      })
+
+      # Append to cart
+      values$probe_cart <- c(values$probe_cart, new_items)
+
+      showNotification(
+        sprintf("Added %d probe%s to cart",
+                length(new_items),
+                if (length(new_items) == 1) "" else "s"),
+        type = "message",
+        duration = 3
+      )
     })
 
     # Download handler - exports selected probes (or all if none selected)

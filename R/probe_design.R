@@ -1353,3 +1353,155 @@ filter_probes_by_specificity <- function(probes, min_mismatches = 5) {
 
   filtered
 }
+
+# =============================================================================
+# Probe Naming for IDT Bulk Order
+# =============================================================================
+
+#' Generate IDT-compatible probe name
+#'
+#' Creates a smart name for probe based on organism, compartment, and targets.
+#' Format: {Species}-{Compartment?}-{AA}-{Anticodon}-{Specificity}
+#'
+#' @param organism Organism name ("human", "yeast", "ecoli")
+#' @param compartment Compartment ("nuclear" or "mitochondrial")
+#' @param amino_acid Amino acid (e.g., "Leu", "Lys")
+#' @param anticodon Anticodon (e.g., "CAA", "TTT")
+#' @param targets_hit Vector of tRNA IDs this probe hits
+#' @param total_targets Total targets in the selection
+#' @param multi_counter Counter for multi-probes (for -multi-1, -multi-2, etc.)
+#' @return Character string with probe name
+#' @export
+generate_probe_name <- function(organism, compartment, amino_acid, anticodon,
+                                targets_hit, total_targets, multi_counter = NULL) {
+  # Species prefix
+  species <- switch(organism,
+    "human" = "Hs",
+    "yeast" = "Sc",
+    "ecoli" = "Ec",
+    "Hs"  # Default
+
+  )
+
+  # Compartment suffix (only for mitochondrial)
+  comp_str <- if (compartment == "mitochondrial") "-mito" else ""
+
+  # Specificity suffix
+  if (length(targets_hit) == 1) {
+    # Single target - extract family-copy from ID (e.g., "1-1" from "tRNA-Leu-CAA-1-1")
+    target_id <- targets_hit[1]
+    # Parse ID to get family and copy number
+    parts <- strsplit(target_id, "-")[[1]]
+    if (length(parts) >= 5) {
+      # Format: tRNA-AA-Anticodon-Family-Copy
+      suffix <- paste0(parts[4], "-", parts[5])
+    } else if (length(parts) >= 4) {
+      # Format: tRNA-AA-Anticodon-Number
+      suffix <- parts[4]
+    } else {
+      suffix <- "1"
+    }
+  } else if (length(targets_hit) == total_targets && total_targets > 1) {
+    # All targets hit
+    suffix <- "all"
+  } else {
+    # Multiple but not all - use multi counter
+    if (!is.null(multi_counter)) {
+      suffix <- paste0("multi-", multi_counter)
+    } else {
+      suffix <- "multi"
+    }
+  }
+
+  # Build final name
+  paste0(species, comp_str, "-", amino_acid, "-", anticodon, "-", suffix)
+}
+
+#' Extract amino acid and anticodon from tRNA IDs
+#'
+#' Parses tRNA ID to get amino acid and anticodon.
+#'
+#' @param target_ids Vector of tRNA IDs
+#' @param trna_df Data frame with id, amino_acid, and anticodon columns
+#' @return List with amino_acid and anticodon (from first target)
+#' @export
+extract_aa_anticodon <- function(target_ids, trna_df) {
+  target_row <- trna_df[trna_df$id %in% target_ids, ][1, ]
+  list(
+    amino_acid = target_row$amino_acid,
+    anticodon = target_row$anticodon
+  )
+}
+
+#' Generate unique probe names for a set of probes
+#'
+#' Handles duplicate naming by adding counters.
+#'
+#' @param probes Data frame of probes
+#' @param organism Organism name
+#' @param compartment Compartment
+#' @param target_ids All target IDs for the selection
+#' @param trna_df tRNA data frame
+#' @param existing_names Character vector of names already in cart (to avoid duplicates)
+#' @return Character vector of unique probe names
+#' @export
+generate_probe_names_batch <- function(probes, organism, compartment, target_ids,
+                                       trna_df, existing_names = character()) {
+  if (nrow(probes) == 0) return(character())
+
+  # Get amino acid and anticodon from targets
+  aa_info <- extract_aa_anticodon(target_ids, trna_df)
+  amino_acid <- aa_info$amino_acid
+  anticodon <- aa_info$anticodon
+
+  n_total <- length(target_ids)
+
+  # Track multi-counters per group
+  multi_counter <- 1
+  all_names <- existing_names
+
+  names <- character(nrow(probes))
+
+  for (i in seq_len(nrow(probes))) {
+    probe <- probes[i, ]
+
+    # Determine which targets this probe covers
+    if ("targets_covered" %in% names(probe) && !is.na(probe$targets_covered) && probe$targets_covered != "") {
+      targets_hit <- strsplit(probe$targets_covered, ",")[[1]]
+    } else {
+      # Fallback: assume covers all targets
+      targets_hit <- target_ids
+    }
+
+    # Check if this is a "multi" case
+    is_multi <- length(targets_hit) > 1 && length(targets_hit) < n_total
+
+    # Generate base name
+    base_name <- generate_probe_name(
+      organism = organism,
+      compartment = compartment,
+      amino_acid = amino_acid,
+      anticodon = anticodon,
+      targets_hit = targets_hit,
+      total_targets = n_total,
+      multi_counter = if (is_multi) multi_counter else NULL
+    )
+
+    if (is_multi) {
+      multi_counter <- multi_counter + 1
+    }
+
+    # Handle duplicates by appending a number
+    final_name <- base_name
+    dup_counter <- 2
+    while (final_name %in% all_names) {
+      final_name <- paste0(base_name, "-", dup_counter)
+      dup_counter <- dup_counter + 1
+    }
+
+    names[i] <- final_name
+    all_names <- c(all_names, final_name)
+  }
+
+  names
+}

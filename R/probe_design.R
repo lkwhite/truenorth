@@ -997,3 +997,359 @@ rerank_probes_for_coverage <- function(probes, coverage_matrix, target_ids) {
 
   probes_reordered
 }
+
+#' Re-rank probes for optimal coverage of sequence GROUPS
+#'
+#' Uses greedy set cover algorithm to find minimal set of probes
+#' that covers all sequence groups. Groups are collections of tRNAs
+#' with identical sequences (collapsed for coverage purposes).
+#'
+#' @param probes Data frame of probes with original quality-based ranking
+#' @param group_coverage_matrix Logical matrix (probes x groups)
+#' @param n_groups Number of sequence groups
+#' @return Data frame of probes with new coverage-optimized ranking
+#' @export
+rerank_probes_for_group_coverage <- function(probes, group_coverage_matrix, n_groups) {
+  n_probes <- nrow(probes)
+
+  if (n_probes == 0 || n_groups == 0) {
+    return(probes)
+  }
+
+  # Track which groups are covered and which probes are assigned
+  covered <- logical(n_groups)
+  remaining_probes <- seq_len(n_probes)
+  new_order <- integer()
+
+  # Greedy set cover: pick probe covering most uncovered groups
+  # Use original quality score as tiebreaker
+  while (length(remaining_probes) > 0) {
+    best_probe <- NULL
+    best_new_coverage <- -1
+    best_quality <- -Inf
+
+    for (probe_idx in remaining_probes) {
+      # Count new groups this probe would cover
+      probe_covers <- group_coverage_matrix[probe_idx, ]
+      new_coverage <- sum(probe_covers & !covered)
+
+      # Get quality score for tiebreaker (higher is better)
+      quality <- if ("selectivity_score" %in% names(probes)) {
+        probes$selectivity_score[probe_idx]
+      } else {
+        -probes$rank[probe_idx]  # Lower rank = better
+      }
+
+      # Select if covers more new groups, or same but higher quality
+      if (new_coverage > best_new_coverage ||
+          (new_coverage == best_new_coverage && quality > best_quality)) {
+        best_probe <- probe_idx
+        best_new_coverage <- new_coverage
+        best_quality <- quality
+      }
+    }
+
+    if (is.null(best_probe)) break
+
+    # Add this probe to the new order
+    new_order <- c(new_order, best_probe)
+    covered <- covered | group_coverage_matrix[best_probe, ]
+    remaining_probes <- setdiff(remaining_probes, best_probe)
+
+    # If all groups covered, remaining probes get appended by quality
+    if (all(covered)) {
+      # Sort remaining by original quality score (descending)
+      if (length(remaining_probes) > 0) {
+        remaining_quality <- sapply(remaining_probes, function(idx) {
+          if ("selectivity_score" %in% names(probes)) {
+            probes$selectivity_score[idx]
+          } else {
+            -probes$rank[idx]
+          }
+        })
+        remaining_by_quality <- remaining_probes[order(remaining_quality, decreasing = TRUE)]
+        new_order <- c(new_order, remaining_by_quality)
+      }
+      break
+    }
+  }
+
+  # Reorder probes and assign new ranks
+  probes_reordered <- probes[new_order, ]
+  probes_reordered$original_rank <- probes_reordered$rank
+  probes_reordered$rank <- seq_len(nrow(probes_reordered))
+
+  # Add coverage info
+  probes_reordered$groups_covered <- sapply(seq_len(nrow(probes_reordered)), function(i) {
+    sum(group_coverage_matrix[new_order[i], ])
+  })
+
+  probes_reordered
+}
+
+# =============================================================================
+# Off-target Analysis by Amino Acid
+# =============================================================================
+
+#' Calculate off-target information categorized by amino acid relationship
+#'
+#' For each probe, calculates mismatches to:
+#' - Same amino acid tRNAs (allowable off-targets)
+#' - Different amino acid tRNAs (critical off-targets)
+#'
+#' @param probes Data frame of probes with probe_sequence, start, end
+#' @param target_ids Vector of target tRNA IDs
+#' @param all_trnas Data frame of ALL tRNAs with id, sequence, amino_acid columns
+#' @return Updated probes data frame with off-target columns
+#' @export
+add_offtarget_analysis <- function(probes, target_ids, all_trnas) {
+  if (nrow(probes) == 0) return(probes)
+
+  # Get the target amino acid(s)
+  target_trnas <- all_trnas[all_trnas$id %in% target_ids, ]
+  target_amino_acids <- unique(target_trnas$amino_acid)
+
+  # Separate off-targets by amino acid relationship
+  off_targets <- all_trnas[!all_trnas$id %in% target_ids, ]
+
+  if (nrow(off_targets) == 0) {
+    probes$min_same_aa_mismatches <- NA_integer_
+    probes$closest_same_aa_id <- NA_character_
+    probes$min_diff_aa_mismatches <- NA_integer_
+    probes$closest_diff_aa_id <- NA_character_
+    probes$closest_diff_aa_amino <- NA_character_
+    return(probes)
+  }
+
+  same_aa_offtargets <- off_targets[off_targets$amino_acid %in% target_amino_acids, ]
+  diff_aa_offtargets <- off_targets[!off_targets$amino_acid %in% target_amino_acids, ]
+
+  # Calculate off-target info for each probe
+  results <- lapply(seq_len(nrow(probes)), function(i) {
+    probe <- probes[i, ]
+
+    # Calculate mismatches to same-AA off-targets
+    same_aa_info <- list(min_mm = NA_integer_, closest_id = NA_character_)
+    if (nrow(same_aa_offtargets) > 0) {
+      same_aa_mm <- calculate_probe_mismatches(
+        probe$probe_sequence, probe$start, probe$end, same_aa_offtargets
+      )
+      if (length(same_aa_mm$mismatches) > 0 && !all(is.na(same_aa_mm$mismatches))) {
+        min_idx <- which.min(same_aa_mm$mismatches)
+        same_aa_info$min_mm <- same_aa_mm$mismatches[min_idx]
+        same_aa_info$closest_id <- same_aa_mm$target_id[min_idx]
+      }
+    }
+
+    # Calculate mismatches to different-AA off-targets
+    diff_aa_info <- list(min_mm = NA_integer_, closest_id = NA_character_, closest_aa = NA_character_)
+    if (nrow(diff_aa_offtargets) > 0) {
+      diff_aa_mm <- calculate_probe_mismatches(
+        probe$probe_sequence, probe$start, probe$end, diff_aa_offtargets
+      )
+      if (length(diff_aa_mm$mismatches) > 0 && !all(is.na(diff_aa_mm$mismatches))) {
+        min_idx <- which.min(diff_aa_mm$mismatches)
+        diff_aa_info$min_mm <- diff_aa_mm$mismatches[min_idx]
+        diff_aa_info$closest_id <- diff_aa_mm$target_id[min_idx]
+        diff_aa_info$closest_aa <- diff_aa_offtargets$amino_acid[
+          diff_aa_offtargets$id == diff_aa_info$closest_id
+        ][1]
+      }
+    }
+
+    data.frame(
+      min_same_aa_mismatches = same_aa_info$min_mm,
+      closest_same_aa_id = same_aa_info$closest_id,
+      min_diff_aa_mismatches = diff_aa_info$min_mm,
+      closest_diff_aa_id = diff_aa_info$closest_id,
+      closest_diff_aa_amino = diff_aa_info$closest_aa,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  offtarget_df <- bind_rows(results)
+  cbind(probes, offtarget_df)
+}
+
+#' Calculate mismatches between a probe and multiple targets
+#'
+#' Helper function for off-target analysis.
+#'
+#' @param probe_sequence Probe sequence (5'->3')
+#' @param probe_start Start position of probe binding site
+#' @param probe_end End position of probe binding site
+#' @param targets_df Data frame with id and sequence columns
+#' @return Data frame with target_id and mismatches columns
+calculate_probe_mismatches <- function(probe_sequence, probe_start, probe_end, targets_df) {
+  # Reverse the probe to get 3'->5' for alignment
+  probe_reversed <- paste(rev(strsplit(probe_sequence, "")[[1]]), collapse = "")
+  probe_chars <- strsplit(probe_reversed, "")[[1]]
+  probe_len <- length(probe_chars)
+
+  results <- lapply(seq_len(nrow(targets_df)), function(i) {
+    target_id <- targets_df$id[i]
+    target_seq <- targets_df$sequence[i]
+    target_len <- nchar(target_seq)
+
+    # Extract binding region from target
+    actual_start <- max(1, probe_start)
+    actual_end <- min(target_len, probe_end)
+
+    if (actual_end < actual_start || (actual_end - actual_start + 1) < probe_len * 0.5) {
+      return(data.frame(target_id = target_id, mismatches = NA_integer_, stringsAsFactors = FALSE))
+    }
+
+    binding_region <- substr(target_seq, actual_start, actual_end)
+    region_chars <- strsplit(binding_region, "")[[1]]
+
+    # Count mismatches
+    mismatches <- 0
+    for (j in seq_along(region_chars)) {
+      if (j > probe_len) break
+      target_base <- toupper(region_chars[j])
+      probe_base <- toupper(probe_chars[j])
+
+      is_match <- (target_base == "A" && probe_base == "T") ||
+                  (target_base == "T" && probe_base == "A") ||
+                  (target_base == "U" && probe_base == "A") ||
+                  (target_base == "G" && probe_base == "C") ||
+                  (target_base == "C" && probe_base == "G")
+
+      if (!is_match) mismatches <- mismatches + 1
+    }
+
+    # Account for length differences
+    len_diff <- abs(length(region_chars) - probe_len)
+    mismatches <- mismatches + len_diff
+
+    data.frame(target_id = target_id, mismatches = mismatches, stringsAsFactors = FALSE)
+  })
+
+  bind_rows(results)
+}
+
+# =============================================================================
+# Probe Deduplication / Clustering
+# =============================================================================
+
+#' Cluster probes by position overlap and return representatives
+#'
+#' Groups probes that target similar regions (overlapping positions) and
+#' returns only the best representative from each cluster.
+#'
+#' @param probes Data frame of probes with start, end, rank columns
+#' @param min_overlap Minimum overlap fraction to consider probes in same cluster (default 0.7)
+#' @return Data frame of deduplicated probes (best from each cluster)
+#' @export
+cluster_probes_by_position <- function(probes, min_overlap = 0.7) {
+  if (nrow(probes) <= 1) return(probes)
+
+  n <- nrow(probes)
+
+  # Calculate overlap between all probe pairs
+  # Overlap = intersection / union of positions
+  get_overlap <- function(s1, e1, s2, e2) {
+    intersection <- max(0, min(e1, e2) - max(s1, s2) + 1)
+    union <- max(e1, e2) - min(s1, s2) + 1
+    intersection / union
+  }
+
+  # Check if probes are from the same source (only cluster within same source)
+  # This prevents clustering probes designed for different tRNAs
+  same_source <- function(i, j) {
+    # Check source_id if available
+    if ("source_id" %in% names(probes)) {
+      return(probes$source_id[i] == probes$source_id[j])
+    }
+    # Check reference_id if available
+    if ("reference_id" %in% names(probes)) {
+      return(probes$reference_id[i] == probes$reference_id[j])
+    }
+    # Check target_id if available
+    if ("target_id" %in% names(probes)) {
+      return(probes$target_id[i] == probes$target_id[j])
+    }
+    # No source info - fall back to position-only clustering
+    TRUE
+  }
+
+  # Assign cluster IDs using greedy clustering
+  clusters <- rep(NA_integer_, n)
+  cluster_id <- 0
+
+  for (i in seq_len(n)) {
+    if (is.na(clusters[i])) {
+      # Start new cluster
+      cluster_id <- cluster_id + 1
+      clusters[i] <- cluster_id
+
+      # Find all probes that overlap sufficiently with this one AND are from same source
+      for (j in seq_len(n)) {
+        if (i != j && is.na(clusters[j])) {
+          # Only cluster if from same source reference
+          if (same_source(i, j)) {
+            overlap <- get_overlap(
+              probes$start[i], probes$end[i],
+              probes$start[j], probes$end[j]
+            )
+            if (overlap >= min_overlap) {
+              clusters[j] <- cluster_id
+            }
+          }
+        }
+      }
+    }
+  }
+
+  probes$position_cluster <- clusters
+
+  # Get best probe from each cluster (lowest rank = best)
+  best_probes <- probes %>%
+    group_by(position_cluster) %>%
+    slice_min(rank, n = 1, with_ties = FALSE) %>%
+    ungroup()
+
+  # Track cluster info
+  cluster_sizes <- table(clusters)
+  best_probes$cluster_size <- as.integer(cluster_sizes[as.character(best_probes$position_cluster)])
+
+  # Re-rank the deduplicated probes
+  best_probes <- best_probes[order(best_probes$rank), ]
+  best_probes$original_rank <- best_probes$rank
+  best_probes$rank <- seq_len(nrow(best_probes))
+
+  best_probes
+}
+
+#' Filter probes by minimum different-AA off-target mismatches
+#'
+#' Removes probes that don't meet the specificity threshold against
+#' different amino acid tRNAs.
+#'
+#' @param probes Data frame of probes with min_diff_aa_mismatches column
+#' @param min_mismatches Minimum mismatches required to different-AA tRNAs (default 5)
+#' @return Filtered data frame of probes
+#' @export
+filter_probes_by_specificity <- function(probes, min_mismatches = 5) {
+  if (!"min_diff_aa_mismatches" %in% names(probes)) {
+    warning("min_diff_aa_mismatches column not found. Run add_offtarget_analysis first.")
+    return(probes)
+  }
+
+  # Keep probes where diff-AA mismatches >= threshold OR is NA (no diff-AA off-targets)
+  filtered <- probes[
+    is.na(probes$min_diff_aa_mismatches) |
+    probes$min_diff_aa_mismatches >= min_mismatches,
+  ]
+
+  if (nrow(filtered) == 0) {
+    warning(sprintf("No probes meet the %d mismatch threshold. Returning all probes.", min_mismatches))
+    return(probes)
+  }
+
+  # Re-rank
+  filtered <- filtered[order(filtered$rank), ]
+  filtered$rank <- seq_len(nrow(filtered))
+
+  filtered
+}

@@ -536,6 +536,16 @@ server <- function(input, output, session) {
 
         # Combine all probe sets with target grouping
         if (length(all_probe_sets) > 0) {
+          # Add off-target analysis to each probe set
+          all_trnas <- if (!is.null(values$trna_data_all)) values$trna_data_all else values$trna_data
+          for (tid in names(all_probe_sets)) {
+            all_probe_sets[[tid]] <- add_offtarget_analysis(
+              probes = all_probe_sets[[tid]],
+              target_ids = tid,  # Just this one target
+              all_trnas = all_trnas
+            )
+          }
+
           combined_probes <- do.call(rbind, all_probe_sets)
           combined_probes$rank <- seq_len(nrow(combined_probes))
           values$wizard_probes <- combined_probes
@@ -581,25 +591,109 @@ server <- function(input, output, session) {
         targets_df <- values$trna_data[values$trna_data$id %in% values$wizard_selection$ids, ]
 
         if (nrow(result$probes) > 0 && nrow(targets_df) > 0) {
-          coverage_result <- build_coverage_matrix(
-            probes = result$probes,
-            targets_df = targets_df,
-            max_mismatches = 3
-          )
-
-          probes_final <- coverage_result$probes
-          coverage_matrix <- coverage_result$matrix
-
-          # For isoacceptor and amino_acid goals, re-rank probes for optimal coverage
-          # This ensures rank 1, 2, 3... are complementary probes, not variations
+          # For isoacceptor and amino_acid goals, design probes for EACH unique sequence
           if (values$wizard_goal %in% c("isoacceptor", "amino_acid")) {
-            probes_final <- rerank_probes_for_coverage(
-              probes = probes_final,
-              coverage_matrix = coverage_matrix,
-              target_ids = targets_df$id
+            # Group targets by unique sequence
+            unique_seqs <- unique(targets_df$sequence)
+            n_groups <- length(unique_seqs)
+
+            # Design probes for EACH unique sequence group using single-target design
+            # This ensures every sequence variant gets probes, regardless of conservation
+            all_probes_list <- list()
+
+            for (g in seq_len(n_groups)) {
+              # Find a representative tRNA with this sequence
+              rep_idx <- which(targets_df$sequence == unique_seqs[g])[1]
+              rep_id <- targets_df$id[rep_idx]
+
+              # Design probes for this specific target
+              group_probes <- tryCatch({
+                design_probes(
+                  target_ids = rep_id,
+                  trna_df = values$trna_data,
+                  target_mode = "single",
+                  min_length = params$probe_length - 2,
+                  max_length = params$probe_length + 2,
+                  top_n = 5  # Top 5 probes per sequence group
+                )
+              }, error = function(e) data.frame())
+
+              if (nrow(group_probes) > 0) {
+                # Add/rename columns to match expected format
+                group_probes$source_group <- g
+                group_probes$source_id <- rep_id
+                group_probes$reference_id <- rep_id
+                if (!"quality" %in% names(group_probes) && "score" %in% names(group_probes)) {
+                  group_probes$quality <- ifelse(group_probes$score >= 80, "Good",
+                                                 ifelse(group_probes$score >= 60, "OK", "Low"))
+                }
+                if (!"trna_region" %in% names(group_probes)) {
+                  # Determine region based on position
+                  seq_len <- nchar(targets_df$sequence[rep_idx])
+                  group_probes$trna_region <- sapply(group_probes$start, function(s) {
+                    if (s <= seq_len * 0.33) "5' half"
+                    else if (s >= seq_len * 0.67) "3' half"
+                    else "middle"
+                  })
+                }
+                if (!"gc_content" %in% names(group_probes) && "gc" %in% names(group_probes)) {
+                  group_probes$gc_content <- group_probes$gc
+                }
+                if (!"selectivity_score" %in% names(group_probes)) {
+                  group_probes$selectivity_score <- 50  # Default for single-target probes
+                }
+                if (!"desired_conservation" %in% names(group_probes)) {
+                  group_probes$desired_conservation <- 100  # Perfect match to its own target
+                }
+                if (!"overlaps_anticodon" %in% names(group_probes)) {
+                  group_probes$overlaps_anticodon <- FALSE
+                }
+                all_probes_list[[length(all_probes_list) + 1]] <- group_probes
+              }
+            }
+
+            if (length(all_probes_list) == 0) {
+              # Fallback to selective design if single-target fails
+              all_probes <- result$probes
+            } else {
+              all_probes <- do.call(rbind, all_probes_list)
+            }
+            all_probes$rank <- seq_len(nrow(all_probes))
+
+            # Cluster to remove near-duplicates
+            probes_clustered <- if (nrow(all_probes) > 1) {
+              cluster_probes_by_position(all_probes, min_overlap = 0.85)
+            } else {
+              all_probes
+            }
+
+            # Build coverage matrix
+            coverage_result <- build_coverage_matrix(
+              probes = probes_clustered,
+              targets_df = targets_df,
+              max_mismatches = 3
             )
 
-            # Rebuild coverage matrix with new probe order
+            # Build group-level coverage matrix
+            seq_to_group <- setNames(seq_along(unique_seqs), unique_seqs)
+            target_groups <- seq_to_group[targets_df$sequence]
+
+            group_coverage_matrix <- matrix(FALSE, nrow = nrow(probes_clustered), ncol = n_groups)
+            for (g in seq_len(n_groups)) {
+              member_cols <- which(target_groups == g)
+              for (p in seq_len(nrow(probes_clustered))) {
+                group_coverage_matrix[p, g] <- any(coverage_result$matrix[p, member_cols])
+              }
+            }
+
+            # Re-rank for optimal group coverage
+            probes_final <- rerank_probes_for_group_coverage(
+              probes = coverage_result$probes,
+              group_coverage_matrix = group_coverage_matrix,
+              n_groups = n_groups
+            )
+
+            # Rebuild coverage matrix with new order
             coverage_result <- build_coverage_matrix(
               probes = probes_final,
               targets_df = targets_df,
@@ -607,7 +701,34 @@ server <- function(input, output, session) {
             )
             coverage_matrix <- coverage_result$matrix
             probes_final <- coverage_result$probes
+
+            # Rebuild group coverage matrix with final probe order
+            group_coverage_matrix <- matrix(FALSE, nrow = nrow(probes_final), ncol = n_groups)
+            for (g in seq_len(n_groups)) {
+              member_cols <- which(target_groups == g)
+              for (p in seq_len(nrow(probes_final))) {
+                group_coverage_matrix[p, g] <- any(coverage_matrix[p, member_cols])
+              }
+            }
+          } else {
+            # Single target goal - simpler flow
+            coverage_result <- build_coverage_matrix(
+              probes = result$probes,
+              targets_df = targets_df,
+              max_mismatches = 3
+            )
+
+            probes_final <- coverage_result$probes
+            coverage_matrix <- coverage_result$matrix
           }
+
+          # Add off-target analysis (amino acid categorization)
+          all_trnas <- if (!is.null(values$trna_data_all)) values$trna_data_all else values$trna_data
+          probes_final <- add_offtarget_analysis(
+            probes = probes_final,
+            target_ids = values$wizard_selection$ids,
+            all_trnas = all_trnas
+          )
 
           # Store final probes
           values$wizard_probes <- probes_final
@@ -618,7 +739,10 @@ server <- function(input, output, session) {
             mismatch_matrix = coverage_result$mismatch_matrix,
             targets_covered_by = coverage_result$targets_covered_by,
             n_targets = coverage_result$n_targets,
-            target_ids = targets_df$id
+            target_ids = targets_df$id,
+            target_sequences = targets_df$sequence,
+            group_coverage_matrix = if (exists("group_coverage_matrix")) group_coverage_matrix else NULL,
+            n_groups = if (exists("n_groups")) n_groups else NULL
           )
 
           # Estimate probes needed for various coverage levels

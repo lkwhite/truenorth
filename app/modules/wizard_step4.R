@@ -172,31 +172,89 @@ wizardStep4Server <- function(id, values) {
             # Collapsible coverage matrix
             tags$hr(class = "my-3"),
             tags$div(
-              tags$a(
-                class = "text-decoration-none",
-                `data-bs-toggle` = "collapse",
-                href = paste0("#", ns("coverage_matrix_collapse")),
-                role = "button",
-                `aria-expanded` = "false",
-                tags$span(icon("th"), " Coverage Matrix"),
-                tags$small(class = "text-muted ms-2", "(click to expand)")
+              tags$div(
+                class = "d-flex justify-content-between align-items-center",
+                tags$a(
+                  class = "text-decoration-none",
+                  `data-bs-toggle` = "collapse",
+                  href = paste0("#", ns("coverage_matrix_collapse")),
+                  role = "button",
+                  `aria-expanded` = "true",
+                  tags$span(icon("th"), " Coverage Matrix"),
+                  tags$small(class = "text-muted ms-2", "(click to collapse)")
+                ),
+                tags$div(
+                  class = "d-flex gap-2",
+                  actionButton(
+                    ns("suggest_minimum"),
+                    "Suggest minimum set",
+                    class = "btn btn-sm btn-outline-success",
+                    icon = icon("magic")
+                  ),
+                  actionButton(
+                    ns("clear_selection"),
+                    "Clear",
+                    class = "btn btn-sm btn-outline-secondary"
+                  )
+                )
               ),
               tags$div(
                 id = ns("coverage_matrix_collapse"),
-                class = "collapse mt-3",
+                class = "collapse show mt-3",
+                tags$p(class = "small text-muted mb-2",
+                  "Click on probe columns (#1, #2, etc.) to select/deselect probes"
+                ),
                 uiOutput(ns("coverage_matrix_view"))
               )
             )
           )
         ),
 
-        # Probe table
+        # Probe table with filter controls
         tags$div(
           class = "card",
           tags$div(
-            class = "card-header bg-light d-flex justify-content-between align-items-center",
-            tags$strong("Probe Details"),
-            uiOutput(ns("probe_toggle_buttons"))
+            class = "card-header bg-light",
+            tags$div(
+              class = "d-flex justify-content-between align-items-center",
+              tags$strong("Probe Details"),
+              uiOutput(ns("probe_toggle_buttons"))
+            ),
+            # Filter controls row
+            tags$div(
+              class = "mt-2 pt-2 border-top d-flex flex-wrap gap-3 align-items-center small",
+              # Specificity filter
+              tags$div(
+                class = "d-flex align-items-center gap-2",
+                tags$label(class = "mb-0 text-muted", "Min diff-AA mismatches:"),
+                tags$select(
+                  id = ns("min_diff_aa_filter"),
+                  class = "form-select form-select-sm",
+                  style = "width: 70px;",
+                  onchange = sprintf("Shiny.setInputValue('%s', this.value, {priority: 'event'})", ns("min_diff_aa_filter")),
+                  tags$option(value = "0", "Any"),
+                  tags$option(value = "3", "3+"),
+                  tags$option(value = "4", "4+"),
+                  tags$option(value = "5", "5+", selected = "selected"),
+                  tags$option(value = "6", "6+")
+                )
+              ),
+              # Clustering toggle
+              tags$div(
+                class = "form-check",
+                tags$input(
+                  type = "checkbox",
+                  class = "form-check-input",
+                  id = ns("cluster_probes"),
+                  onclick = sprintf("Shiny.setInputValue('%s', this.checked, {priority: 'event'})", ns("cluster_probes"))
+                ),
+                tags$label(
+                  class = "form-check-label text-muted",
+                  `for` = ns("cluster_probes"),
+                  "Deduplicate (unique regions)"
+                )
+              )
+            )
           ),
           tags$div(
             class = "card-body",
@@ -241,11 +299,34 @@ wizardStep4Server <- function(id, values) {
       probes <- values$wizard_probes
       coverage_data <- values$coverage_data
 
+      # Apply specificity filter
+      min_diff_aa <- as.integer(input$min_diff_aa_filter %||% "0")
+      if (min_diff_aa > 0 && "min_diff_aa_mismatches" %in% names(probes)) {
+        probes <- probes[
+          is.na(probes$min_diff_aa_mismatches) |
+          probes$min_diff_aa_mismatches >= min_diff_aa,
+        ]
+      }
+
+      # Apply clustering/deduplication
+      if (isTRUE(input$cluster_probes) && nrow(probes) > 1) {
+        probes <- cluster_probes_by_position(probes, min_overlap = 0.7)
+      }
+
       # Filter based on display mode
       mode <- probe_display_mode()
       if (mode == "best") {
         # Show top 10 probes by rank
         probes <- head(probes[order(probes$rank), ], 10)
+      }
+
+      # Handle empty result after filtering
+      if (nrow(probes) == 0) {
+        return(DT::datatable(
+          data.frame(Message = "No probes match the current filters. Try relaxing the specificity threshold."),
+          options = list(dom = "t"),
+          rownames = FALSE
+        ))
       }
 
       # Format coverage columns
@@ -256,15 +337,35 @@ wizardStep4Server <- function(id, values) {
         covers_col <- rep("-", nrow(probes))
       }
 
+      # Format Diff-AA off-target column
+      if ("min_diff_aa_mismatches" %in% names(probes)) {
+        diff_aa_col <- sapply(seq_len(nrow(probes)), function(i) {
+          mm <- probes$min_diff_aa_mismatches[i]
+          aa <- probes$closest_diff_aa_amino[i]
+          if (is.na(mm)) {
+            "-"
+          } else {
+            # Color code: green >=5, yellow 3-4, red <3
+            color <- if (mm >= 5) "#009E73" else if (mm >= 3) "#E69F00" else "#D55E00"
+            sprintf('<span style="color:%s; font-weight:bold;">%d</span> <small>(%s)</small>',
+                    color, mm, if (is.na(aa)) "?" else aa)
+          }
+        })
+      } else {
+        diff_aa_col <- rep("-", nrow(probes))
+      }
+
       # Format for display
       display_df <- data.frame(
         Rank = probes$rank,
         Sequence = probes$probe_sequence,
         Region = probes$trna_region,
         Covers = covers_col,
+        `Diff-AA` = diff_aa_col,
         Tm = sprintf("%.1f", probes$tm_nn),
         Quality = probes$quality,
-        stringsAsFactors = FALSE
+        stringsAsFactors = FALSE,
+        check.names = FALSE
       )
 
       # Add warning icon for modification risk
@@ -289,12 +390,12 @@ wizardStep4Server <- function(id, values) {
 
       DT::datatable(
         display_df,
-        selection = list(mode = "multiple", selected = which(probes$rank %in% values$selected_probes)),
+        selection = list(mode = "multiple"),  # Selection managed via proxy
         options = list(
           pageLength = 25,  # Show all typical probe sets on one page
           dom = "ti",  # table + info only, no pagination for small sets
           columnDefs = list(
-            list(className = "dt-center", targets = c(0, 3, 4, 5))
+            list(className = "dt-center", targets = c(0, 3, 4, 5, 6))  # Rank, Covers, Diff-AA, Tm, Quality
           )
         ),
         rownames = FALSE,
@@ -302,16 +403,40 @@ wizardStep4Server <- function(id, values) {
       )
     })
 
-    # Sync table selection with values$selected_probes
+    # Create table proxy for updating selection without re-rendering
+    probe_table_proxy <- DT::dataTableProxy("probe_table")
+
+    # Sync FROM values$selected_probes TO table (one-way: values -> table)
+    observeEvent(values$selected_probes, {
+      req(values$wizard_probes)
+      selected_ranks <- values$selected_probes %||% integer()
+      # Find which rows have these ranks
+      selected_rows <- which(values$wizard_probes$rank %in% selected_ranks)
+      DT::selectRows(probe_table_proxy, selected_rows)
+    }, ignoreInit = TRUE)
+
+    # Sync FROM table TO values (only on explicit table clicks)
+    # Use a flag to prevent circular updates
     observeEvent(input$probe_table_rows_selected, {
       req(values$wizard_probes)
+      # Only process if this is a user click, not a programmatic update
+      # We detect this by checking if the selection actually differs from what we set
       selected_rows <- input$probe_table_rows_selected
-      if (is.null(selected_rows)) {
-        values$selected_probes <- integer()
+      if (is.null(selected_rows)) selected_rows <- integer()
+
+      new_ranks <- if (length(selected_rows) > 0) {
+        values$wizard_probes$rank[selected_rows]
       } else {
-        values$selected_probes <- values$wizard_probes$rank[selected_rows]
+        integer()
       }
-    }, ignoreNULL = FALSE)
+
+      current_ranks <- values$selected_probes %||% integer()
+
+      # Only update if different (avoids circular updates)
+      if (!setequal(new_ranks, current_ranks)) {
+        values$selected_probes <- new_ranks
+      }
+    }, ignoreInit = TRUE)
 
     # Coverage badge (shows in card header)
     output$coverage_badge <- renderUI({
@@ -471,6 +596,99 @@ wizardStep4Server <- function(id, values) {
       values$selected_probes <- integer()
     })
 
+    # Suggest minimum probe set using greedy set cover
+    observeEvent(input$suggest_minimum, {
+      coverage_data <- values$coverage_data
+      probes <- values$wizard_probes
+
+      if (is.null(coverage_data) || is.null(probes)) {
+        showNotification("Coverage data not available", type = "warning")
+        return()
+      }
+
+      # Use individual target matrix and build group coverage fresh
+      # (same logic as visualization to ensure consistency)
+      ind_matrix <- coverage_data$matrix
+      target_sequences <- coverage_data$target_sequences
+      target_ids <- coverage_data$target_ids
+
+      if (is.null(ind_matrix) || nrow(ind_matrix) == 0) {
+        showNotification("No coverage data to analyze", type = "warning")
+        return()
+      }
+
+      # Build group coverage matrix using same logic as visualization
+      if (!is.null(target_sequences) && length(target_sequences) == length(target_ids)) {
+        unique_seqs <- unique(target_sequences)
+        n_groups <- length(unique_seqs)
+        n_probes <- nrow(ind_matrix)
+
+        # Build group membership (which columns belong to each group)
+        group_cols <- lapply(unique_seqs, function(s) {
+          which(target_sequences == s)
+        })
+
+        # Build group coverage matrix
+        coverage_matrix <- matrix(FALSE, nrow = n_probes, ncol = n_groups)
+        for (g in seq_len(n_groups)) {
+          cols <- group_cols[[g]]
+          for (p in seq_len(n_probes)) {
+            coverage_matrix[p, g] <- any(ind_matrix[p, cols])
+          }
+        }
+      } else {
+        # No grouping - use individual matrix
+        coverage_matrix <- ind_matrix
+        n_groups <- ncol(coverage_matrix)
+        unique_seqs <- target_ids
+      }
+
+      # Greedy set cover algorithm
+      n_probes <- nrow(coverage_matrix)
+      n_targets <- ncol(coverage_matrix)
+      selected_indices <- integer()
+      covered <- rep(FALSE, n_targets)
+
+      while (!all(covered) && length(selected_indices) < n_probes) {
+        # Find probe that covers the most uncovered targets
+        uncovered_coverage <- sapply(seq_len(n_probes), function(p) {
+          if (p %in% selected_indices) return(-1)  # Already selected
+          sum(coverage_matrix[p, ] & !covered)
+        })
+
+        best_probe <- which.max(uncovered_coverage)
+        best_new <- uncovered_coverage[best_probe]
+
+        if (best_new == 0) break  # No probe can cover any more targets
+
+        selected_indices <- c(selected_indices, best_probe)
+        covered <- covered | coverage_matrix[best_probe, ]
+      }
+
+      # Convert row indices to probe ranks
+      selected_ranks <- probes$rank[selected_indices]
+
+      # Update selection
+      values$selected_probes <- sort(selected_ranks)
+
+      # Notify user
+      n_covered <- sum(covered)
+      n_total <- n_targets
+      if (all(covered)) {
+        showNotification(
+          sprintf("Selected %d probes for full coverage of all %d target groups",
+                  length(selected_ranks), n_total),
+          type = "message"
+        )
+      } else {
+        showNotification(
+          sprintf("Selected %d probes covering %d/%d target groups (some targets may be uncoverable)",
+                  length(selected_ranks), n_covered, n_total),
+          type = "warning"
+        )
+      }
+    })
+
     # Coverage matrix visualization
     output$coverage_matrix_view <- renderUI({
       coverage_data <- values$coverage_data
@@ -485,10 +703,28 @@ wizardStep4Server <- function(id, values) {
         coverage_matrix = coverage_data$matrix,
         probe_ranks = probes$rank,
         target_ids = coverage_data$target_ids,
+        target_sequences = coverage_data$target_sequences,
         selected_probes = selected,
         max_probes = 15,
-        max_targets = 12
+        max_targets = 50,  # Show all groups (sequences are collapsed)
+        ns = ns  # Pass namespace for clickable probe headers
       )
+    })
+
+    # Handle clicks on probe columns in coverage matrix
+    observeEvent(input$matrix_probe_click, {
+      click_data <- input$matrix_probe_click
+      if (is.null(click_data)) return()
+
+      rank <- click_data$rank
+      current_selected <- values$selected_probes %||% integer()
+
+      # Toggle selection
+      if (rank %in% current_selected) {
+        values$selected_probes <- setdiff(current_selected, rank)
+      } else {
+        values$selected_probes <- c(current_selected, rank)
+      }
     })
 
     # Probe detail view - shows details for last clicked probe
@@ -695,7 +931,7 @@ wizardStep4Server <- function(id, values) {
       )
     })
 
-    # Reactive off-target diagram with toggle
+    # Reactive off-target diagram with toggle - now separated by amino acid
     output$offtarget_diagram <- renderUI({
       req(values$wizard_probes)
 
@@ -722,69 +958,140 @@ wizardStep4Server <- function(id, values) {
         ))
       }
 
+      # Get target amino acids
+      target_trnas <- all_trnas[all_trnas$id %in% target_ids, ]
+      target_amino_acids <- unique(target_trnas$amino_acid)
+
+      # Separate same-AA and different-AA off-targets
+      same_aa_df <- off_target_df[off_target_df$amino_acid %in% target_amino_acids, ]
+      diff_aa_df <- off_target_df[!off_target_df$amino_acid %in% target_amino_acids, ]
+
       # Calculate mismatches for each off-target
-      off_target_df$binding_region <- substr(off_target_df$sequence, probe$start, probe$end)
       probe_reversed <- paste(rev(strsplit(probe$probe_sequence, "")[[1]]), collapse = "")
       probe_chars <- strsplit(probe_reversed, "")[[1]]
 
-      off_target_df$n_mismatches <- sapply(off_target_df$binding_region, function(region) {
-        region_chars <- strsplit(region, "")[[1]]
-        mismatches <- 0
-        for (i in seq_along(region_chars)) {
-          target_base <- toupper(region_chars[i])
-          probe_base <- if (i <= length(probe_chars)) toupper(probe_chars[i]) else "?"
-          is_match <- (target_base == "A" && probe_base == "T") ||
-                      (target_base == "T" && probe_base == "A") ||
-                      (target_base == "G" && probe_base == "C") ||
-                      (target_base == "C" && probe_base == "G")
-          if (!is_match) mismatches <- mismatches + 1
-        }
-        mismatches
-      })
+      calc_mismatches <- function(df) {
+        if (nrow(df) == 0) return(df)
+        df$binding_region <- substr(df$sequence, probe$start, probe$end)
+        df$n_mismatches <- sapply(df$binding_region, function(region) {
+          region_chars <- strsplit(region, "")[[1]]
+          mismatches <- 0
+          for (i in seq_along(region_chars)) {
+            target_base <- toupper(region_chars[i])
+            probe_base <- if (i <= length(probe_chars)) toupper(probe_chars[i]) else "?"
+            is_match <- (target_base == "A" && probe_base == "T") ||
+                        (target_base == "T" && probe_base == "A") ||
+                        (target_base == "G" && probe_base == "C") ||
+                        (target_base == "C" && probe_base == "G")
+            if (!is_match) mismatches <- mismatches + 1
+          }
+          mismatches
+        })
+        df[order(df$n_mismatches), ]
+      }
 
-      # Sort by mismatches
-      off_target_df <- off_target_df[order(off_target_df$n_mismatches), ]
+      same_aa_df <- calc_mismatches(same_aa_df)
+      diff_aa_df <- calc_mismatches(diff_aa_df)
 
       # Use toggle to determine max_show
       show_all <- input$show_all_offtargets %||% FALSE
       max_show <- if (show_all) Inf else 3
-      closest_off_targets <- if (show_all) off_target_df else head(off_target_df, max_show)
 
-      min_mismatches <- min(closest_off_targets$n_mismatches)
+      # Build output sections
+      sections <- list()
 
-      # Specificity alert
-      alert <- if (min_mismatches >= 5) {
-        tags$div(
-          class = "alert alert-success py-2 mb-3",
-          icon("check-circle"),
-          paste0(" Good specificity: closest off-target has ", min_mismatches, " mismatches")
-        )
-      } else if (min_mismatches >= 3) {
-        tags$div(
-          class = "alert alert-warning py-2 mb-3",
-          icon("exclamation-triangle"),
-          paste0(" Moderate specificity: closest off-target has ", min_mismatches, " mismatches")
-        )
-      } else {
-        tags$div(
-          class = "alert alert-danger py-2 mb-3",
-          icon("exclamation-circle"),
-          paste0(" Low specificity: closest off-target has only ", min_mismatches,
-                 " mismatch", if (min_mismatches != 1) "es" else "")
+      # CRITICAL: Different amino acid off-targets (must maintain specificity)
+      if (nrow(diff_aa_df) > 0) {
+        closest_diff <- if (show_all) diff_aa_df else head(diff_aa_df, max_show)
+        min_diff_mm <- min(closest_diff$n_mismatches)
+
+        diff_alert <- if (min_diff_mm >= 5) {
+          tags$div(
+            class = "alert alert-success py-2 mb-2",
+            icon("check-circle"),
+            sprintf(" Good specificity: %d+ mismatches to other amino acids", min_diff_mm)
+          )
+        } else if (min_diff_mm >= 3) {
+          tags$div(
+            class = "alert alert-warning py-2 mb-2",
+            icon("exclamation-triangle"),
+            sprintf(" Moderate: %d mismatches to closest different amino acid", min_diff_mm)
+          )
+        } else {
+          tags$div(
+            class = "alert alert-danger py-2 mb-2",
+            icon("exclamation-circle"),
+            sprintf(" Warning: Only %d mismatch(es) to a different amino acid - may cross-react!", min_diff_mm)
+          )
+        }
+
+        sections$diff_aa <- tagList(
+          tags$h6(
+            class = "mt-3 mb-2 text-danger",
+            icon("exclamation-triangle", class = "me-1"),
+            sprintf("Different Amino Acid Off-targets (%d total)", nrow(diff_aa_df)),
+            tags$small(class = "text-muted ms-2", "- must maintain specificity")
+          ),
+          diff_alert,
+          render_multi_target_hybridization(
+            targets_df = closest_diff,
+            probe_sequence = probe$probe_sequence,
+            start = probe$start,
+            end = probe$end,
+            reference_id = NULL,
+            max_show = max_show
+          )
         )
       }
 
-      tagList(
-        alert,
-        render_multi_target_hybridization(
-          targets_df = closest_off_targets,
-          probe_sequence = probe$probe_sequence,
-          start = probe$start,
-          end = probe$end,
-          reference_id = NULL,
-          max_show = max_show
+      # ALLOWABLE: Same amino acid off-targets (covered by other probes in set)
+      if (nrow(same_aa_df) > 0) {
+        closest_same <- if (show_all) same_aa_df else head(same_aa_df, max_show)
+        min_same_mm <- min(closest_same$n_mismatches)
+
+        same_info <- if (min_same_mm <= 2) {
+          tags$div(
+            class = "alert alert-info py-2 mb-2",
+            icon("info-circle"),
+            sprintf(" Closest same-AA off-target has %d mismatch(es) - may need additional probe for coverage", min_same_mm)
+          )
+        } else {
+          tags$div(
+            class = "alert alert-light py-2 mb-2 border",
+            icon("check"),
+            sprintf(" Same-AA off-targets have %d+ mismatches - use other probes in set to cover", min_same_mm)
+          )
+        }
+
+        sections$same_aa <- tagList(
+          tags$h6(
+            class = "mt-4 mb-2 text-info",
+            icon("layer-group", class = "me-1"),
+            sprintf("Same Amino Acid Off-targets (%d total)", nrow(same_aa_df)),
+            tags$small(class = "text-muted ms-2", "- allowable, cover with other probes")
+          ),
+          same_info,
+          render_multi_target_hybridization(
+            targets_df = closest_same,
+            probe_sequence = probe$probe_sequence,
+            start = probe$start,
+            end = probe$end,
+            reference_id = NULL,
+            max_show = max_show
+          )
         )
-      )
+      }
+
+      # Return both sections (different-AA first as it's more critical)
+      if (length(sections) == 0) {
+        return(tags$div(
+          class = "alert alert-success py-2",
+          icon("check-circle"),
+          " No off-targets found"
+        ))
+      }
+
+      tagList(sections$diff_aa, sections$same_aa)
     })
 
     # Download handler - exports selected probes (or all if none selected)

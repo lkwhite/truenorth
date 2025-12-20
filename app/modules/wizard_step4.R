@@ -31,6 +31,18 @@ wizardStep4Server <- function(id, values) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
+    # Track probe display mode: "all" or "best"
+    probe_display_mode <- reactiveVal("best")
+
+    # Handle All/Best toggle buttons
+    observeEvent(input$show_all, {
+      probe_display_mode("all")
+    })
+
+    observeEvent(input$show_best, {
+      probe_display_mode("best")
+    })
+
     # Selection context banner
     output$selection_context <- renderUI({
       req(values$wizard_goal)
@@ -64,6 +76,7 @@ wizardStep4Server <- function(id, values) {
 
     output$results_content <- renderUI({
       probes <- values$wizard_probes
+      distinguish_mode <- values$distinguish_mode %||% FALSE
 
       if (is.null(probes)) {
         return(tags$div(
@@ -83,6 +96,12 @@ wizardStep4Server <- function(id, values) {
         ))
       }
 
+      # DISTINGUISH MODE: Show probes grouped by target
+      if (distinguish_mode && !is.null(values$probe_sets)) {
+        return(render_distinguish_results(ns, probes, values$probe_sets, values$trna_data))
+      }
+
+      # TOGETHER MODE: Standard display with coverage tracking
       # Summary stats
       n_probes <- nrow(probes)
       avg_tm <- mean(probes$tm_nn, na.rm = TRUE)
@@ -148,7 +167,26 @@ wizardStep4Server <- function(id, values) {
           ),
           tags$div(
             class = "card-body",
-            uiOutput(ns("coverage_tracker"))
+            uiOutput(ns("coverage_tracker")),
+
+            # Collapsible coverage matrix
+            tags$hr(class = "my-3"),
+            tags$div(
+              tags$a(
+                class = "text-decoration-none",
+                `data-bs-toggle` = "collapse",
+                href = paste0("#", ns("coverage_matrix_collapse")),
+                role = "button",
+                `aria-expanded` = "false",
+                tags$span(icon("th"), " Coverage Matrix"),
+                tags$small(class = "text-muted ms-2", "(click to expand)")
+              ),
+              tags$div(
+                id = ns("coverage_matrix_collapse"),
+                class = "collapse mt-3",
+                uiOutput(ns("coverage_matrix_view"))
+              )
+            )
           )
         ),
 
@@ -158,11 +196,7 @@ wizardStep4Server <- function(id, values) {
           tags$div(
             class = "card-header bg-light d-flex justify-content-between align-items-center",
             tags$strong("Probe Details"),
-            tags$div(
-              class = "btn-group btn-group-sm",
-              actionButton(ns("show_all"), "All", class = "btn-outline-secondary"),
-              actionButton(ns("show_best"), "Best Only", class = "btn-outline-secondary active")
-            )
+            uiOutput(ns("probe_toggle_buttons"))
           ),
           tags$div(
             class = "card-body",
@@ -185,11 +219,34 @@ wizardStep4Server <- function(id, values) {
       )
     })
 
+    # Toggle buttons for All/Best view
+    output$probe_toggle_buttons <- renderUI({
+      mode <- probe_display_mode()
+      tags$div(
+        class = "btn-group btn-group-sm",
+        actionButton(
+          ns("show_all"), "All",
+          class = if (mode == "all") "btn-secondary" else "btn-outline-secondary"
+        ),
+        actionButton(
+          ns("show_best"), "Best Only",
+          class = if (mode == "best") "btn-secondary" else "btn-outline-secondary"
+        )
+      )
+    })
+
     # Probe table with multi-select (click to select for probe set AND view details)
     output$probe_table <- DT::renderDataTable({
       req(values$wizard_probes)
       probes <- values$wizard_probes
       coverage_data <- values$coverage_data
+
+      # Filter based on display mode
+      mode <- probe_display_mode()
+      if (mode == "best") {
+        # Show top 10 probes by rank
+        probes <- head(probes[order(probes$rank), ], 10)
+      }
 
       # Format coverage columns
       if (!is.null(coverage_data) && "n_targets_hit" %in% names(probes)) {
@@ -234,8 +291,8 @@ wizardStep4Server <- function(id, values) {
         display_df,
         selection = list(mode = "multiple", selected = which(probes$rank %in% values$selected_probes)),
         options = list(
-          pageLength = 10,
-          dom = "tip",
+          pageLength = 25,  # Show all typical probe sets on one page
+          dom = "ti",  # table + info only, no pagination for small sets
           columnDefs = list(
             list(className = "dt-center", targets = c(0, 3, 4, 5))
           )
@@ -412,6 +469,26 @@ wizardStep4Server <- function(id, values) {
     # Handle clear selection link
     observeEvent(input$clear_selection, {
       values$selected_probes <- integer()
+    })
+
+    # Coverage matrix visualization
+    output$coverage_matrix_view <- renderUI({
+      coverage_data <- values$coverage_data
+      probes <- values$wizard_probes
+      selected <- values$selected_probes %||% integer()
+
+      if (is.null(coverage_data) || is.null(probes)) {
+        return(tags$p(class = "text-muted", "Coverage data not available"))
+      }
+
+      render_coverage_matrix(
+        coverage_matrix = coverage_data$matrix,
+        probe_ranks = probes$rank,
+        target_ids = coverage_data$target_ids,
+        selected_probes = selected,
+        max_probes = 15,
+        max_targets = 12
+      )
     })
 
     # Probe detail view - shows details for last clicked probe
@@ -591,7 +668,12 @@ wizardStep4Server <- function(id, values) {
         return(NULL)
       }
 
-      probe <- values$wizard_probes[selected_row, ]
+      # Use last clicked or first selected for detail view
+      detail_row <- input$probe_table_row_last_clicked
+      if (is.null(detail_row) || !detail_row %in% selected_row) {
+        detail_row <- selected_row[1]
+      }
+      probe <- values$wizard_probes[detail_row, ]
       target_ids <- values$wizard_selection$ids
       targets_df <- values$trna_data[values$trna_data$id %in% target_ids, ]
 
@@ -622,7 +704,12 @@ wizardStep4Server <- function(id, values) {
         return(NULL)
       }
 
-      probe <- values$wizard_probes[selected_row, ]
+      # Use last clicked or first selected for detail view
+      detail_row <- input$probe_table_row_last_clicked
+      if (is.null(detail_row) || !detail_row %in% selected_row) {
+        detail_row <- selected_row[1]
+      }
+      probe <- values$wizard_probes[detail_row, ]
       target_ids <- values$wizard_selection$ids
       all_trnas <- if (!is.null(values$trna_data_all)) values$trna_data_all else values$trna_data
       off_target_df <- all_trnas[!all_trnas$id %in% target_ids, ]
@@ -770,4 +857,388 @@ wizardStep4Server <- function(id, values) {
       }
     )
   })
+}
+
+# =============================================================================
+# Helper function for distinguish mode results
+# =============================================================================
+
+render_distinguish_results <- function(ns, all_probes, probe_sets, trna_data) {
+  n_targets <- length(probe_sets)
+  n_total_probes <- nrow(all_probes)
+  target_ids <- names(probe_sets)
+
+  tagList(
+    # CSS for clickable probe rows
+    tags$style(HTML("
+      .distinguish-probe-row {
+        cursor: pointer;
+        transition: background-color 0.15s;
+      }
+      .distinguish-probe-row:hover {
+        background-color: #e3f2fd !important;
+      }
+      .distinguish-probe-row.selected {
+        background-color: #bbdefb !important;
+      }
+      .distinguish-detail {
+        display: none;
+        animation: fadeIn 0.2s;
+      }
+      .distinguish-detail.show {
+        display: block;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+    ")),
+
+    # JavaScript for row selection
+    tags$script(HTML("
+      function selectDistinguishProbe(groupId, rowIdx) {
+        // Deselect all rows in this group
+        document.querySelectorAll('#group-' + groupId + ' .distinguish-probe-row').forEach(function(row) {
+          row.classList.remove('selected');
+        });
+        // Select clicked row
+        document.getElementById('probe-row-' + groupId + '-' + rowIdx).classList.add('selected');
+        // Hide all details in this group
+        document.querySelectorAll('#group-' + groupId + ' .distinguish-detail').forEach(function(detail) {
+          detail.classList.remove('show');
+        });
+        // Show selected detail
+        document.getElementById('probe-detail-' + groupId + '-' + rowIdx).classList.add('show');
+      }
+    ")),
+
+    # Summary header
+    tags$div(
+      class = "alert alert-info mb-4",
+      tags$div(
+        class = "d-flex align-items-center",
+        icon("code-branch", class = "me-2"),
+        tags$div(
+          tags$strong("Distinguish Mode"),
+          tags$span(class = "ms-2",
+            sprintf("Designed %d probe sets to distinguish between %d isodecoders",
+                    n_targets, n_targets))
+        )
+      )
+    ),
+
+    # Export button
+    tags$div(
+      class = "mb-4 text-end",
+      downloadButton(ns("download_probes"), "Export All Probes (CSV)",
+                     class = "btn-primary btn-sm")
+    ),
+
+    # Probe sets grouped by target
+    lapply(seq_along(target_ids), function(idx) {
+      target_id <- target_ids[idx]
+      probes <- probe_sets[[target_id]]
+      if (is.null(probes) || nrow(probes) == 0) return(NULL)
+
+      target_label <- format_trna_id(target_id)
+      n_probes <- nrow(probes)
+      other_targets <- setdiff(target_ids, target_id)
+      other_targets_df <- trna_data[trna_data$id %in% other_targets, ]
+
+      tags$div(
+        id = paste0("group-", idx),
+        class = "card mb-4",
+        tags$div(
+          class = "card-header bg-primary text-white",
+          tags$div(
+            class = "d-flex justify-content-between align-items-center",
+            tags$span(
+              icon("crosshairs", class = "me-2"),
+              tags$strong(target_label),
+              tags$small(class = "ms-2 opacity-75",
+                sprintf("(distinguishes from %s)", paste(sapply(other_targets, format_trna_id), collapse = ", ")))
+            ),
+            tags$span(class = "badge bg-light text-primary",
+                      paste(n_probes, "probes"))
+          )
+        ),
+        tags$div(
+          class = "card-body",
+          # Probe table as HTML
+          tags$table(
+            class = "table table-sm table-hover",
+            tags$thead(
+              tags$tr(
+                tags$th("Rank", style = "width: 60px;"),
+                tags$th("Sequence"),
+                tags$th("Region", style = "width: 100px;"),
+                tags$th("Tm", style = "width: 70px;"),
+                tags$th("GC", style = "width: 60px;"),
+                tags$th("Quality", style = "width: 80px;")
+              )
+            ),
+            tags$tbody(
+              lapply(seq_len(nrow(probes)), function(row_idx) {
+                probe <- probes[row_idx, ]
+                region_display <- probe$trna_region
+                if ("modification_penalty" %in% names(probe)) {
+                  if (probe$modification_penalty >= 20) {
+                    region_display <- paste0(region_display, " \u26A0\u26A0")
+                  } else if (probe$modification_penalty >= 10) {
+                    region_display <- paste0(region_display, " \u26A0")
+                  }
+                }
+                tags$tr(
+                  id = paste0("probe-row-", idx, "-", row_idx),
+                  class = "distinguish-probe-row",
+                  onclick = sprintf("selectDistinguishProbe(%d, %d)", idx, row_idx),
+                  tags$td(probe$rank),
+                  tags$td(tags$code(probe$probe_sequence, style = "font-size: 0.9em;")),
+                  tags$td(region_display),
+                  tags$td(sprintf("%.1f", probe$tm_nn)),
+                  tags$td(sprintf("%.0f%%", probe$gc_content)),
+                  tags$td(probe$quality)
+                )
+              })
+            )
+          ),
+
+          # Instruction text
+          tags$p(class = "text-muted small mt-2 mb-3",
+                 icon("hand-pointer"), " Click a probe row to see cross-hybridization details"),
+
+          # Detail views (hidden by default, shown when row clicked)
+          lapply(seq_len(nrow(probes)), function(row_idx) {
+            probe <- probes[row_idx, ]
+            tags$div(
+              id = paste0("probe-detail-", idx, "-", row_idx),
+              class = "distinguish-detail border rounded p-3 bg-light",
+              render_distinguish_cross_hyb(probe, target_id, other_targets_df)
+            )
+          })
+        )
+      )
+    })
+  )
+}
+
+# =============================================================================
+# Helper function for distinguish mode cross-hybridization display
+# =============================================================================
+
+#' Render cross-hybridization analysis for distinguish mode
+#'
+#' Shows how a probe designed for one target would bind to other selected targets
+#'
+#' @param probe Single probe row (data frame)
+#' @param target_id The target this probe was designed for
+#' @param other_targets_df Data frame of other selected targets
+#' @return HTML tags showing cross-hybridization potential
+render_distinguish_cross_hyb <- function(probe, target_id, other_targets_df) {
+  if (is.null(other_targets_df) || nrow(other_targets_df) == 0) {
+    return(tags$p(class = "text-muted", "No other targets to analyze"))
+  }
+
+  # Probe binds antiparallel - reverse for comparison
+  probe_reversed <- paste(rev(strsplit(probe$probe_sequence, "")[[1]]), collapse = "")
+  probe_chars <- strsplit(probe_reversed, "")[[1]]
+  probe_len <- length(probe_chars)
+
+  # Calculate base Tm for this probe
+  base_tm <- probe$tm_nn
+
+  # Extract binding regions and calculate mismatches
+  other_targets_df$binding_region <- substr(other_targets_df$sequence, probe$start, probe$end)
+
+  other_targets_df$n_mismatches <- sapply(other_targets_df$binding_region, function(region) {
+    region_chars <- strsplit(region, "")[[1]]
+    mismatches <- 0
+    for (i in seq_along(region_chars)) {
+      target_base <- toupper(region_chars[i])
+      probe_base <- if (i <= length(probe_chars)) toupper(probe_chars[i]) else "?"
+      is_match <- (target_base == "A" && probe_base == "T") ||
+                  (target_base == "T" && probe_base == "A") ||
+                  (target_base == "G" && probe_base == "C") ||
+                  (target_base == "C" && probe_base == "G")
+      if (!is_match) mismatches <- mismatches + 1
+    }
+    mismatches
+  })
+
+  # Estimate Tm with mismatches (~5°C reduction per mismatch)
+  other_targets_df$estimated_tm <- base_tm - (other_targets_df$n_mismatches * 5)
+
+  # Sort by mismatches
+  other_targets_df <- other_targets_df[order(other_targets_df$n_mismatches), ]
+
+  # Build visualization for each other target
+  target_elements <- lapply(seq_len(nrow(other_targets_df)), function(i) {
+    target <- other_targets_df[i, ]
+    n_mm <- target$n_mismatches
+    est_tm <- target$estimated_tm
+    region <- target$binding_region
+    region_chars <- strsplit(region, "")[[1]]
+
+    # Determine specificity level
+    specificity <- if (n_mm >= 5) {
+      list(class = "text-success", icon = "check-circle",
+           label = "Good specificity", desc = "Unlikely to cross-hybridize")
+    } else if (n_mm >= 3) {
+      list(class = "text-warning", icon = "exclamation-triangle",
+           label = "Moderate", desc = "May show some cross-hybridization")
+    } else {
+      list(class = "text-danger", icon = "exclamation-circle",
+           label = "Poor specificity", desc = "Will likely cross-hybridize")
+    }
+
+    # Build sequence with mismatches highlighted and track positions
+    mismatch_positions <- c()
+    seq_html <- lapply(seq_along(region_chars), function(j) {
+      target_base <- toupper(region_chars[j])
+      probe_base <- if (j <= length(probe_chars)) toupper(probe_chars[j]) else "?"
+
+      is_match <- (target_base == "A" && probe_base == "T") ||
+                  (target_base == "T" && probe_base == "A") ||
+                  (target_base == "G" && probe_base == "C") ||
+                  (target_base == "C" && probe_base == "G")
+
+      if (is_match) {
+        tags$span(style = "color: #009E73;", target_base)  # Match - green
+      } else {
+        tags$span(
+          style = "color: #D55E00; font-weight: bold; background: #FFF3CD;",
+          title = sprintf("Position %d: %s in target vs %s in probe", j, target_base, probe_base),
+          target_base
+        )  # Mismatch - red with highlight
+      }
+    })
+
+    # Find mismatch positions for display
+    mm_pos <- which(sapply(seq_along(region_chars), function(j) {
+      target_base <- toupper(region_chars[j])
+      probe_base <- if (j <= length(probe_chars)) toupper(probe_chars[j]) else "?"
+      !((target_base == "A" && probe_base == "T") ||
+        (target_base == "T" && probe_base == "A") ||
+        (target_base == "G" && probe_base == "C") ||
+        (target_base == "C" && probe_base == "G"))
+    }))
+
+    tags$div(
+      class = "mb-3 p-2 border rounded",
+      style = "background: #f8f9fa;",
+      # Header row
+      tags$div(
+        class = "d-flex justify-content-between align-items-center mb-2",
+        tags$span(
+          tags$strong(format_trna_id(target$id)),
+          tags$span(
+            class = "badge bg-secondary ms-2",
+            sprintf("%d mismatch%s", n_mm, if (n_mm == 1) "" else "es")
+          )
+        ),
+        tags$span(
+          class = paste("small", specificity$class),
+          icon(specificity$icon, class = "me-1"),
+          specificity$label
+        )
+      ),
+      # Stats row
+      tags$div(
+        class = "small text-muted mb-2",
+        tags$span(
+          class = "me-3",
+          icon("thermometer-half", class = "me-1"),
+          sprintf("Est. binding Tm: %.0f°C", est_tm),
+          if (est_tm < 37) tags$span(class = "text-success ms-1", "(below 37°C - minimal binding)") else NULL
+        ),
+        if (length(mm_pos) > 0 && length(mm_pos) <= 6) {
+          tags$span(
+            icon("map-marker-alt", class = "me-1"),
+            sprintf("Mismatches at positions: %s", paste(mm_pos, collapse = ", "))
+          )
+        }
+      ),
+      # Sequence alignment view
+      tags$div(
+        style = "font-family: monospace; font-size: 0.85em; background: white; padding: 8px; border-radius: 4px;",
+        tags$div(
+          tags$span(class = "text-muted", "Target 5' "),
+          tags$span(seq_html),
+          tags$span(class = "text-muted", " 3'")
+        ),
+        tags$div(
+          class = "text-muted",
+          tags$span("Probe  3' "),
+          tags$span(probe_reversed),
+          tags$span(" 5'")
+        )
+      )
+    )
+  })
+
+  # Summary header
+  min_mm <- min(other_targets_df$n_mismatches)
+  min_est_tm <- min(other_targets_df$estimated_tm)
+  summary_class <- if (min_mm >= 5) "alert-success" else if (min_mm >= 3) "alert-warning" else "alert-danger"
+  summary_icon <- if (min_mm >= 5) "check-circle" else "exclamation-triangle"
+
+  tagList(
+    # Probe properties header
+    tags$div(
+      class = "mb-3 p-2 border-start border-primary border-3",
+      style = "background: #e7f1ff;",
+      tags$div(
+        class = "d-flex flex-wrap gap-3",
+        tags$div(
+          tags$small(class = "text-muted d-block", "Probe Sequence"),
+          tags$code(probe$probe_sequence, style = "font-size: 1.05em;")
+        ),
+        tags$div(
+          tags$small(class = "text-muted d-block", "Region"),
+          tags$strong(probe$trna_region)
+        ),
+        tags$div(
+          tags$small(class = "text-muted d-block", "Position"),
+          tags$strong(sprintf("%d-%d", probe$start, probe$end))
+        ),
+        tags$div(
+          tags$small(class = "text-muted d-block", "Tm (perfect match)"),
+          tags$strong(sprintf("%.1f°C", probe$tm_nn))
+        ),
+        tags$div(
+          tags$small(class = "text-muted d-block", "GC Content"),
+          tags$strong(sprintf("%.0f%%", probe$gc_content))
+        )
+      )
+    ),
+
+    # Summary alert
+    tags$div(
+      class = paste("alert py-2 mb-3", summary_class),
+      icon(summary_icon, class = "me-1"),
+      if (min_mm >= 5) {
+        sprintf("This probe has %d+ mismatches with all other selected targets - good for distinguishing", min_mm)
+      } else if (min_mm >= 3) {
+        sprintf("Closest other target has %d mismatches - moderate differentiation", min_mm)
+      } else {
+        sprintf("Warning: Closest other target has only %d mismatch(es) - may cross-hybridize", min_mm)
+      },
+      tags$br(),
+      tags$small(
+        class = "opacity-75",
+        sprintf("Estimated off-target Tm range: %.0f°C to %.0f°C",
+                min(other_targets_df$estimated_tm), max(other_targets_df$estimated_tm))
+      )
+    ),
+
+    # Cross-hybridization with other targets
+    tags$h6(class = "mb-2",
+            icon("dna", class = "me-1"),
+            sprintf("Cross-hybridization with %d other selected target%s:",
+                    nrow(other_targets_df), if (nrow(other_targets_df) == 1) "" else "s")),
+    tags$div(
+      style = "max-height: 350px; overflow-y: auto;",
+      target_elements
+    )
+  )
 }

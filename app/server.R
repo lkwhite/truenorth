@@ -489,15 +489,6 @@ server <- function(input, output, session) {
     showNotification("Designing probes...", id = "designing", duration = NULL)
 
     tryCatch({
-      # Get or create selection object
-      selection <- values$wizard_selection_obj
-      if (is.null(selection)) {
-        selection <- create_target_selection(
-          trna_df = values$trna_data,
-          desired_ids = values$wizard_selection$ids
-        )
-      }
-
       # Get design parameters from step 3 (with defaults)
       params <- values$design_params %||% list(
         probe_length = 20,
@@ -505,73 +496,142 @@ server <- function(input, output, session) {
         avoid_anticodon = TRUE
       )
 
-      # Design probes using the backend function
-      result <- design_probes_selective(
-        selection = selection,
-        trna_df = values$trna_data,
-        min_length = params$probe_length - 2,
-        max_length = params$probe_length + 2,
-        min_conservation = 80,
-        min_divergence = 20,
-        top_n = 20,
-        region_pref = params$region_pref,
-        avoid_anticodon = params$avoid_anticodon
-      )
+      # Check for distinguish mode
+      mode <- values$wizard_selection$mode %||% "together"
+      selected_ids <- values$wizard_selection$ids
 
-      # Build coverage matrix for the designed probes
-      targets_df <- values$trna_data[values$trna_data$id %in% values$wizard_selection$ids, ]
+      if (mode == "distinguish" && length(selected_ids) >= 2) {
+        # DISTINGUISH MODE: Design separate probe sets for each target
+        # Each target's probes should NOT hit the other selected targets
+        all_probe_sets <- list()
 
-      if (nrow(result$probes) > 0 && nrow(targets_df) > 0) {
-        coverage_result <- build_coverage_matrix(
-          probes = result$probes,
-          targets_df = targets_df,
-          max_mismatches = 3
-        )
+        for (target_id in selected_ids) {
+          # For this target, the other selected targets are "avoid"
+          other_ids <- setdiff(selected_ids, target_id)
 
-        probes_final <- coverage_result$probes
-        coverage_matrix <- coverage_result$matrix
-
-        # For isoacceptor and amino_acid goals, re-rank probes for optimal coverage
-        # This ensures rank 1, 2, 3... are complementary probes, not variations
-        if (values$wizard_goal %in% c("isoacceptor", "amino_acid")) {
-          probes_final <- rerank_probes_for_coverage(
-            probes = probes_final,
-            coverage_matrix = coverage_matrix,
-            target_ids = targets_df$id
+          selection <- create_target_selection(
+            trna_df = values$trna_data,
+            desired_ids = target_id,
+            avoid_ids = other_ids
           )
 
-          # Rebuild coverage matrix with new probe order
+          result <- design_probes_selective(
+            selection = selection,
+            trna_df = values$trna_data,
+            min_length = params$probe_length - 2,
+            max_length = params$probe_length + 2,
+            min_conservation = 80,
+            min_divergence = 20,
+            top_n = 10,  # Fewer per target since we're making multiple sets
+            region_pref = params$region_pref,
+            avoid_anticodon = params$avoid_anticodon
+          )
+
+          if (nrow(result$probes) > 0) {
+            result$probes$target_id <- target_id
+            result$probes$target_label <- format_trna_id(target_id)
+            all_probe_sets[[target_id]] <- result$probes
+          }
+        }
+
+        # Combine all probe sets with target grouping
+        if (length(all_probe_sets) > 0) {
+          combined_probes <- do.call(rbind, all_probe_sets)
+          combined_probes$rank <- seq_len(nrow(combined_probes))
+          values$wizard_probes <- combined_probes
+          values$distinguish_mode <- TRUE
+          values$probe_sets <- all_probe_sets
+        } else {
+          values$wizard_probes <- data.frame()
+          values$distinguish_mode <- TRUE
+          values$probe_sets <- list()
+        }
+
+        # Coverage data not applicable in distinguish mode (each probe targets ONE)
+        values$coverage_data <- NULL
+        values$coverage_estimate <- NULL
+
+      } else {
+        # TOGETHER MODE: Standard behavior - one probe set for all targets
+        values$distinguish_mode <- FALSE
+        values$probe_sets <- NULL
+
+        selection <- values$wizard_selection_obj
+        if (is.null(selection)) {
+          selection <- create_target_selection(
+            trna_df = values$trna_data,
+            desired_ids = selected_ids
+          )
+        }
+
+        # Design probes using the backend function
+        result <- design_probes_selective(
+          selection = selection,
+          trna_df = values$trna_data,
+          min_length = params$probe_length - 2,
+          max_length = params$probe_length + 2,
+          min_conservation = 80,
+          min_divergence = 20,
+          top_n = 20,
+          region_pref = params$region_pref,
+          avoid_anticodon = params$avoid_anticodon
+        )
+
+        # Build coverage matrix for the designed probes
+        targets_df <- values$trna_data[values$trna_data$id %in% values$wizard_selection$ids, ]
+
+        if (nrow(result$probes) > 0 && nrow(targets_df) > 0) {
           coverage_result <- build_coverage_matrix(
-            probes = probes_final,
+            probes = result$probes,
             targets_df = targets_df,
             max_mismatches = 3
           )
-          coverage_matrix <- coverage_result$matrix
+
           probes_final <- coverage_result$probes
+          coverage_matrix <- coverage_result$matrix
+
+          # For isoacceptor and amino_acid goals, re-rank probes for optimal coverage
+          # This ensures rank 1, 2, 3... are complementary probes, not variations
+          if (values$wizard_goal %in% c("isoacceptor", "amino_acid")) {
+            probes_final <- rerank_probes_for_coverage(
+              probes = probes_final,
+              coverage_matrix = coverage_matrix,
+              target_ids = targets_df$id
+            )
+
+            # Rebuild coverage matrix with new probe order
+            coverage_result <- build_coverage_matrix(
+              probes = probes_final,
+              targets_df = targets_df,
+              max_mismatches = 3
+            )
+            coverage_matrix <- coverage_result$matrix
+            probes_final <- coverage_result$probes
+          }
+
+          # Store final probes
+          values$wizard_probes <- probes_final
+
+          # Store coverage data for UI
+          values$coverage_data <- list(
+            matrix = coverage_matrix,
+            mismatch_matrix = coverage_result$mismatch_matrix,
+            targets_covered_by = coverage_result$targets_covered_by,
+            n_targets = coverage_result$n_targets,
+            target_ids = targets_df$id
+          )
+
+          # Estimate probes needed for various coverage levels
+          values$coverage_estimate <- estimate_probes_needed(
+            coverage_matrix = coverage_matrix,
+            target_ids = targets_df$id
+          )
+        } else {
+          values$wizard_probes <- result$probes
+          values$coverage_data <- NULL
+          values$coverage_estimate <- NULL
         }
-
-        # Store final probes
-        values$wizard_probes <- probes_final
-
-        # Store coverage data for UI
-        values$coverage_data <- list(
-          matrix = coverage_matrix,
-          mismatch_matrix = coverage_result$mismatch_matrix,
-          targets_covered_by = coverage_result$targets_covered_by,
-          n_targets = coverage_result$n_targets,
-          target_ids = targets_df$id
-        )
-
-        # Estimate probes needed for various coverage levels
-        values$coverage_estimate <- estimate_probes_needed(
-          coverage_matrix = coverage_matrix,
-          target_ids = targets_df$id
-        )
-      } else {
-        values$wizard_probes <- result$probes
-        values$coverage_data <- NULL
-        values$coverage_estimate <- NULL
-      }
+      }  # End of together mode else block
 
       removeNotification("designing")
 

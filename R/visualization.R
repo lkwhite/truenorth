@@ -1793,5 +1793,209 @@ get_visualization_css <- function() {
     .isoacceptor-rows {
       overflow-x: auto;
     }
+
+    /* Coverage matrix styles */
+    .coverage-matrix {
+      overflow-x: auto;
+      font-size: 0.85em;
+    }
+
+    .coverage-matrix table {
+      border-collapse: collapse;
+      margin: 0 auto;
+    }
+
+    .coverage-matrix th, .coverage-matrix td {
+      padding: 4px 8px;
+      text-align: center;
+      border: 1px solid #dee2e6;
+    }
+
+    .coverage-matrix th {
+      background-color: #f8f9fa;
+      font-weight: normal;
+      font-size: 0.85em;
+    }
+
+    .coverage-matrix th.target-header {
+      text-align: left;
+      padding-right: 12px;
+      background-color: #fff;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .coverage-matrix .coverage-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .coverage-matrix .covered {
+      background-color: #009E73;
+    }
+
+    .coverage-matrix .not-covered {
+      background-color: #e9ecef;
+    }
+
+    .coverage-matrix .selected-probe-col {
+      background-color: #e7f3ff;
+    }
+
+    .coverage-matrix th.selected-probe-col {
+      background-color: #cce5ff;
+      font-weight: bold;
+    }
+
+    .coverage-matrix tr.target-covered-row {
+      background-color: rgba(0, 158, 115, 0.1);
+    }
+
+    .coverage-matrix tr.target-covered-row th.target-header {
+      background-color: rgba(0, 158, 115, 0.15);
+    }
   ")))
+}
+
+# =============================================================================
+# Coverage Matrix Visualization
+# =============================================================================
+
+#' Render a coverage matrix showing which probes hit which targets
+#'
+#' Creates an HTML table visualization showing probe-target coverage as dots.
+#' Targets are rows, probes are columns. Selected probes and covered targets are highlighted.
+#'
+#' @param coverage_matrix Logical matrix (probes x targets) from build_coverage_matrix()
+#' @param probe_ranks Vector of probe rank numbers
+#' @param target_ids Vector of target tRNA IDs
+#' @param selected_probes Vector of selected probe ranks (will be highlighted)
+#' @param max_probes Maximum number of probes to show (default 15)
+#' @param max_targets Maximum number of targets to show (default 20)
+#' @return HTML element containing the coverage matrix
+#' @export
+render_coverage_matrix <- function(coverage_matrix,
+                                   probe_ranks,
+                                   target_ids,
+                                   selected_probes = integer(),
+                                   max_probes = 15,
+                                   max_targets = 20) {
+
+  if (is.null(coverage_matrix) || nrow(coverage_matrix) == 0 || ncol(coverage_matrix) == 0) {
+    return(tags$p(class = "text-muted", "No coverage data available"))
+  }
+
+  n_probes <- min(nrow(coverage_matrix), max_probes)
+  n_targets <- min(ncol(coverage_matrix), max_targets)
+
+  # Subset if needed
+  matrix_subset <- coverage_matrix[1:n_probes, 1:n_targets, drop = FALSE]
+  ranks_subset <- probe_ranks[1:n_probes]
+  targets_subset <- target_ids[1:n_targets]
+
+  # Calculate which targets are covered by selected probes
+  covered_targets <- character()
+  if (length(selected_probes) > 0) {
+    selected_rows <- which(ranks_subset %in% selected_probes)
+    if (length(selected_rows) > 0) {
+      covered_cols <- apply(matrix_subset[selected_rows, , drop = FALSE], 2, any)
+      covered_targets <- targets_subset[covered_cols]
+    }
+  }
+
+  # Build header row with probe numbers as columns
+  header_cells <- list(tags$th(class = "target-header", "Target"))
+  for (i in seq_along(ranks_subset)) {
+    rank <- ranks_subset[i]
+    is_selected <- rank %in% selected_probes
+    header_cells <- c(header_cells, list(
+      tags$th(
+        class = if (is_selected) "selected-probe-col" else NULL,
+        title = paste("Probe #", rank),
+        paste0("#", rank)
+      )
+    ))
+  }
+  if (nrow(coverage_matrix) > max_probes) {
+    header_cells <- c(header_cells, list(tags$th(
+      style = "color: #999;",
+      sprintf("+%d", nrow(coverage_matrix) - max_probes)
+    )))
+  }
+
+  # Build data rows (one row per target)
+  data_rows <- lapply(seq_along(targets_subset), function(j) {
+    target_id <- targets_subset[j]
+    short_id <- format_trna_id(target_id)
+    is_covered <- target_id %in% covered_targets
+    row_class <- if (is_covered) "target-covered-row" else NULL
+
+    cells <- list(tags$th(
+      class = "target-header",
+      title = target_id,
+      short_id
+    ))
+
+    for (i in seq_along(ranks_subset)) {
+      is_hit <- matrix_subset[i, j]
+      rank <- ranks_subset[i]
+      is_selected <- rank %in% selected_probes
+
+      cell_class <- if (is_selected) "selected-probe-col" else NULL
+
+      cells <- c(cells, list(
+        tags$td(
+          class = cell_class,
+          tags$span(
+            class = paste("coverage-dot", if (is_hit) "covered" else "not-covered")
+          )
+        )
+      ))
+    }
+
+    if (nrow(coverage_matrix) > max_probes) {
+      # Show count of additional probes hitting this target
+      extra_hits <- sum(coverage_matrix[(max_probes + 1):nrow(coverage_matrix), j])
+      cells <- c(cells, list(tags$td(
+        style = "color: #999; font-size: 0.8em;",
+        if (extra_hits > 0) paste0("+", extra_hits) else ""
+      )))
+    }
+
+    do.call(tags$tr, c(list(class = row_class), cells))
+  })
+
+  # Add "more targets" row if needed
+  if (ncol(coverage_matrix) > max_targets) {
+    more_row <- tags$tr(
+      tags$td(
+        colspan = n_probes + 2,
+        style = "color: #999; font-size: 0.85em; text-align: center;",
+        sprintf("... and %d more targets", ncol(coverage_matrix) - max_targets)
+      )
+    )
+    data_rows <- c(data_rows, list(more_row))
+  }
+
+  # Assemble table
+  tags$div(
+    class = "coverage-matrix",
+    tags$table(
+      tags$thead(do.call(tags$tr, header_cells)),
+      do.call(tags$tbody, data_rows)
+    ),
+    tags$div(
+      class = "mt-2 small text-muted text-center",
+      tags$span(class = "coverage-dot covered me-1", style = "width: 10px; height: 10px;"),
+      "= probe covers target",
+      tags$span(class = "ms-3"),
+      tags$span(
+        style = "background-color: rgba(0, 158, 115, 0.1); padding: 2px 6px; border-radius: 3px;",
+        "highlighted"
+      ),
+      " = covered by selected probes"
+    )
+  )
 }

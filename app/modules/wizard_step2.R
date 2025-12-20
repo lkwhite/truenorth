@@ -110,8 +110,17 @@ wizardStep2Server <- function(id, values) {
     observeEvent(input$selected_trnas, {
       if (!is.null(values$wizard_goal) && values$wizard_goal == "specific") {
         values$wizard_selection$ids <- input$selected_trnas %||% character()
+        # Reset mode when selection changes
+        if (length(input$selected_trnas) <= 1) {
+          values$wizard_selection$mode <- "together"
+        }
       }
     }, ignoreNULL = FALSE)
+
+    # Handle detection mode toggle (together vs distinguish)
+    observeEvent(input$detection_mode, {
+      values$wizard_selection$mode <- input$detection_mode
+    })
 
     # Handle isoacceptor family selection
     observeEvent(input$selected_anticodon, {
@@ -147,6 +156,7 @@ wizardStep2Server <- function(id, values) {
     # Selection summary
     output$selection_summary <- renderUI({
       n_selected <- length(values$wizard_selection$ids)
+      mode <- values$wizard_selection$mode %||% "together"
 
       if (n_selected == 0) {
         return(tags$div(
@@ -160,6 +170,30 @@ wizardStep2Server <- function(id, values) {
       n_anticodons <- length(unique(selected_data$anticodon))
       n_amino_acids <- length(unique(selected_data$amino_acid))
 
+      # Mode-specific message for "specific" goal
+      mode_msg <- NULL
+      if (values$wizard_goal == "specific" && n_selected >= 2) {
+        if (mode == "distinguish") {
+          mode_msg <- tags$div(
+            class = "mt-2",
+            tags$span(class = "badge bg-info me-1", "Distinguish mode"),
+            tags$small(sprintf("Will design %d separate probe sets, one for each target", n_selected))
+          )
+        } else {
+          mode_msg <- tags$div(
+            class = "mt-2",
+            tags$span(class = "badge bg-primary me-1", "Together mode"),
+            tags$small("Will design probes that detect ALL selected targets")
+          )
+        }
+      } else if (values$wizard_goal == "specific" && n_selected == 1 && mode == "distinguish") {
+        mode_msg <- tags$div(
+          class = "mt-2 text-warning",
+          icon("exclamation-triangle"),
+          tags$small(" Select 2+ targets to use distinguish mode")
+        )
+      }
+
       tags$div(
         class = "alert alert-success mt-3",
         tags$strong(n_selected, " tRNAs selected"),
@@ -167,7 +201,8 @@ wizardStep2Server <- function(id, values) {
         tags$small(
           n_anticodons, " anticodon families, ",
           n_amino_acids, " amino acids"
-        )
+        ),
+        mode_msg
       )
     })
   })
@@ -182,6 +217,53 @@ render_specific_ui <- function(ns, trna_data) {
   aa_choices <- sort(unique(trna_data$amino_acid))
 
   tagList(
+    # Detection mode choice - shown upfront
+    tags$div(
+      class = "card mb-3",
+      tags$div(
+        class = "card-body",
+        tags$div(
+          class = "d-flex align-items-center gap-3",
+          tags$strong("Detection mode:"),
+          tags$div(
+            class = "form-check form-check-inline",
+            tags$input(
+              type = "radio",
+              class = "form-check-input",
+              name = ns("detection_mode"),
+              id = ns("mode_together"),
+              value = "together",
+              checked = "checked",
+              onclick = sprintf("Shiny.setInputValue('%s', 'together', {priority: 'event'})", ns("detection_mode"))
+            ),
+            tags$label(
+              class = "form-check-label",
+              `for` = ns("mode_together"),
+              tags$strong("Detect together"),
+              tags$small(class = "text-muted d-block", "One probe set that hits ALL selected")
+            )
+          ),
+          tags$div(
+            class = "form-check form-check-inline",
+            tags$input(
+              type = "radio",
+              class = "form-check-input",
+              name = ns("detection_mode"),
+              id = ns("mode_distinguish"),
+              value = "distinguish",
+              onclick = sprintf("Shiny.setInputValue('%s', 'distinguish', {priority: 'event'})", ns("detection_mode"))
+            ),
+            tags$label(
+              class = "form-check-label",
+              `for` = ns("mode_distinguish"),
+              tags$strong("Distinguish between"),
+              tags$small(class = "text-muted d-block", "Separate probes for EACH selected")
+            )
+          )
+        )
+      )
+    ),
+
     fluidRow(
       column(
         width = 4,

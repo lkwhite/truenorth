@@ -2,7 +2,7 @@
 
 **TRUENORTH:** tRNA-Resolved Utility for Evaluating Northern Oligo Reference Targets via Hybridization
 
-**Last Updated:** 2025-12-16
+**Last Updated:** 2025-12-19
 
 ## Project Status: Functional MVP
 
@@ -27,6 +27,8 @@ Full wizard-based probe design workflow with Coverage Explorer for multi-target 
 
 | Task | Date | Notes |
 |------|------|-------|
+| Distinguish mode | 2025-12-19 | Design probes to differentiate between isodecoders with cross-hyb analysis |
+| Coverage matrix visualization | 2025-12-19 | Visual matrix showing probe-target coverage |
 | Wizard UX improvements | 2025-12-16 | Auto-advance for isoacceptor/amino_acid, organism selector on Step 1 |
 | Deploy to shinyapps.io | 2025-12-16 | Public deployment at lkwhite.shinyapps.io/truenorth |
 | Coverage Explorer | 2025-12-16 | Multi-select probes, cumulative coverage tracking, coverage-optimized ranking |
@@ -135,6 +137,31 @@ Full wizard-based probe design workflow with Coverage Explorer for multi-target 
 ---
 
 ## Session Notes
+
+### 2025-12-19 - Distinguish Mode for Isodecoder Differentiation
+- Added "Distinguish between" detection mode in Step 2 (wizard_step2.R):
+  - Radio toggle between "Detect together" (AND logic) and "Distinguish between" (OR logic)
+  - Together mode: One probe set that detects ALL selected targets
+  - Distinguish mode: Separate probe sets for EACH target, treating others as "avoid"
+- Updated server.R `run_probe_design()` for distinguish mode:
+  - Loops through each selected target
+  - Treats other selected targets as sequences to avoid
+  - Creates `values$probe_sets` list with probes per target
+  - Sets `values$distinguish_mode` flag
+- Added distinguish mode results display in wizard_step4.R:
+  - `render_distinguish_results()`: Creates card for each target group with HTML table
+  - Clickable probe rows using pure JavaScript (avoids Shiny dynamic output issues)
+  - `render_distinguish_cross_hyb()`: Cross-hybridization analysis showing:
+    - Probe properties (sequence, region, position, Tm, GC%)
+    - Estimated off-target Tm (~5°C reduction per mismatch)
+    - Mismatch positions listed
+    - Sequence alignment with color-coded matches/mismatches
+    - Specificity assessment (good/moderate/poor)
+- Added `render_coverage_matrix()` to visualization.R:
+  - Visual matrix with targets as rows, probes as columns
+  - Dots indicate coverage, highlighting for selected probes
+- Fixed multi-select warning in target/off-target binding diagrams:
+  - Now uses single row (last clicked or first selected) for detail view
 
 ### 2024-12-16 - Modification-Aware Probe Ranking
 - Added `get_modification_zones()` to `R/probe_design.R`:

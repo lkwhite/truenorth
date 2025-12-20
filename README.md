@@ -15,6 +15,7 @@ TRUENORTH designs northern blot probes for tRNA detection with high specificity.
 ### Features
 
 - **Goal-oriented workflow** - Target specific isodecoders, isoacceptor families, or all tRNAs for an amino acid
+- **Distinguish mode** - Design probes that differentiate between similar isodecoders with cross-hybridization analysis
 - **Coverage optimization** - Probes ranked to maximize coverage with minimal probe sets
 - **Specificity analysis** - Binding diagrams show hybridization across targets and off-targets
 - **Modification warnings** - Flags probes overlapping heavily modified tRNA regions
